@@ -1,0 +1,171 @@
+spring:
+  application:
+    name: excel-viewer
+  datasource:
+    url: "jdbc:h2:mem:timesheetviewerdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE"
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ''
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+      settings:
+        web-allow-others: false
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate.format_sql: true
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
+    enabled: true
+  thymeleaf:
+    cache: false
+    prefix: classpath:/templates/
+    suffix: .html
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.xyzsoft.excelviewer: DEBUG
+    org.liquibase: WARN
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MASTER / REFERENCE DATA — edit here and restart to apply
+# ─────────────────────────────────────────────────────────────────────────────
+app:
+  master:
+    sow:
+      sow-number: SOW_18_2026
+      po-number: '3429004068'
+      po-value: 7000000
+      client: IGT
+
+    # Public holidays — add/remove entries and restart
+    holidays:
+      - holidayDate: "2026-03-18"
+        holidayName: Holi
+        countryCode: IN
+        notes: "Falls on Saturday"
+      - holidayDate: "2026-03-30"
+        holidayName: Id ul-Fitr
+        countryCode: IN
+        notes: "Confirm gazette notification"
+      - holidayDate: "2026-01-26"
+        holidayName: Republic Day
+        countryCode: IN
+        notes: ""
+      - holidayDate: "2026-08-15"
+        holidayName: Independence Day
+        countryCode: IN
+        notes: ""
+      - holidayDate: "2026-10-02"
+        holidayName: Gandhi Jayanti
+        countryCode: IN
+        notes: ""
+
+    # Resource roster — used for validation
+    resources:
+      - resourceId: RES-001
+        name: AKK
+        dailyRateUsd: 150
+        startDate: "2026-03-01"
+        endDate: "2027-03-31"
+      - resourceId: RES-002
+        name: Amit Bhattacharjee
+        dailyRateUsd: 150
+        startDate: "2026-03-01"
+        endDate: "2026-03-13"
+      - resourceId: RES-003
+        name: Anupam Khatiwada
+        dailyRateUsd: 200
+        startDate: "2026-03-01"
+        endDate: "2027-03-31"
+      - resourceId: RES-004
+        name: AS
+        dailyRateUsd: 150
+        startDate: "2026-03-01"
+        endDate: "2026-03-31"
+      - resourceId: RES-005
+        name: BK
+        dailyRateUsd: 180
+        startDate: "2026-03-01"
+        endDate: "2026-03-31"
+      - resourceId: RES-006
+        name: HK
+        dailyRateUsd: 200
+        startDate: "2026-03-01"
+        endDate: "2026-03-31"
+      - resourceId: RES-007
+        name: Harpreet Singh Gulati
+        dailyRateUsd: 200
+        startDate: "2026-03-01"
+        endDate: "2026-03-31"
+      - resourceId: RES-008
+        name: KS
+        dailyRateUsd: 150
+        startDate: "2026-03-01"
+        endDate: "2026-03-31"
+      - resourceId: RES-009
+        name: MH
+        dailyRateUsd: 180
+        startDate: "2026-03-01"
+        endDate: "2026-03-31"
+      - resourceId: RES-010
+        name: NM
+        dailyRateUsd: 150
+        startDate: "2026-03-01"
+        endDate: "2026-03-31"
+      - resourceId: RES-011
+        name: NN
+        dailyRateUsd: 200
+        startDate: "2026-03-01"
+        endDate: "2026-03-31"
+      - resourceId: RES-012
+        name: RSG
+        dailyRateUsd: 200
+        startDate: "2026-03-01"
+        endDate: "2026-03-31"
+      - resourceId: RES-013
+        name: Shubham Khojare
+        dailyRateUsd: 200
+        startDate: "2026-03-01"
+        endDate: "2026-03-31"
+      - resourceId: RES-014
+        name: SM
+        dailyRateUsd: 150
+        startDate: "2026-03-01"
+        endDate: "2026-03-31"
+      - resourceId: RES-015
+        name: SG
+        dailyRateUsd: 200
+        startDate: "2026-03-01"
+        endDate: "2026-03-31"
+      - resourceId: RES-016
+        name: SK2
+        dailyRateUsd: 180
+        startDate: "2026-03-01"
+        endDate: "2026-03-31"
+      - resourceId: RES-017
+        name: TS
+        dailyRateUsd: 150
+        startDate: "2026-03-01"
+        endDate: "2026-03-31"
+      - resourceId: RES-018
+        name: Umesh Singh Kalakoti
+        dailyRateUsd: 200
+        startDate: "2026-03-16"
+        endDate: "2026-03-31"
+
+    validation:
+      max-hours-per-day: 8.0
+      allow-weekend-override: false
+      expected-sow: SOW_18_2026

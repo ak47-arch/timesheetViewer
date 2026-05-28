@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head th:replace="fragments/layout :: head('Home')"></head>
+<body>
+<nav th:replace="fragments/layout :: navbar"></nav>
+
+<main class="main-content">
+    <div class="page-header">
+        <div>
+            <h1><i class="fa fa-file-excel"></i> Excel Timesheet Viewer &amp; Validator</h1>
+            <p class="subtitle">Upload any Excel workbook to view all sheets in tabs.
+                Automatically validates the <strong>Timesheet</strong> sheet against
+                business rules.</p>
+        </div>
+    </div>
+
+    <!-- Flash messages -->
+    <div th:if="${success}" class="alert alert-success">
+        <i class="fa fa-circle-check"></i> <span th:text="${success}"></span>
+    </div>
+    <div th:if="${error}" class="alert alert-danger">
+        <i class="fa fa-circle-xmark"></i> <span th:text="${error}"></span>
+    </div>
+    <div th:if="${warning}" class="alert alert-warning">
+        <i class="fa fa-triangle-exclamation"></i> <span th:text="${warning}"></span>
+    </div>
+
+    <div class="two-col">
+        <!-- ── Upload Card ───────────────────────────────────────────────── -->
+        <div class="card">
+            <div class="card-header">
+                <i class="fa fa-upload"></i> Upload Excel Workbook
+            </div>
+            <div class="card-body">
+                <div class="drop-zone" id="dropZone">
+                    <i class="fa fa-file-excel fa-3x text-green"></i>
+                    <p class="mt-2">Drag &amp; drop your <strong>.xlsx</strong> here</p>
+                    <p class="text-muted small">or click to browse</p>
+                    <input type="file" id="fileInput" accept=".xlsx" style="display:none"/>
+                    <p id="fileName" class="mt-2 selected-file"></p>
+                </div>
+                <form id="uploadForm" th:action="@{/upload}" method="post"
+                      enctype="multipart/form-data" class="mt-3">
+                    <input type="file" name="file" id="hiddenFile" accept=".xlsx" style="display:none"/>
+                    <button type="submit" id="uploadBtn" class="btn btn-success btn-block" disabled>
+                        <i class="fa fa-rocket"></i> Upload &amp; Validate
+                    </button>
+                </form>
+
+                <div class="info-box mt-3">
+                    <i class="fa fa-circle-info"></i>
+                    <div>
+                        <strong>Validation Rules Applied (Timesheet sheet):</strong>
+                        <ul class="rule-list mt-1">
+                            <li><span class="badge badge-red">TS-01</span> Max 8 hrs/day per resource</li>
+                            <li><span class="badge badge-red">TS-02</span> No weekend entries</li>
+                            <li><span class="badge badge-red">TS-03</span> No public holiday entries</li>
+                            <li><span class="badge badge-red">TS-04</span> Hours must be positive</li>
+                            <li><span class="badge badge-orange">TS-05</span> Resource must be in roster</li>
+                            <li><span class="badge badge-red">TS-06</span> SOW must match expected</li>
+                            <li><span class="badge badge-orange">TS-07</span> Date within engagement period</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Master Data Summary ──────────────────────────────────────── -->
+        <div>
+            <div class="card mb-3">
+                <div class="card-header"><i class="fa fa-calendar-xmark"></i> Public Holidays Configured</div>
+                <div class="card-body p-0">
+                    <table class="data-table">
+                        <thead><tr><th>Date</th><th>Holiday</th><th>Country</th></tr></thead>
+                        <tbody>
+                        <tr th:each="h : ${holidays}">
+                            <td><span class="badge badge-orange" th:text="${h.holidayDate}"></span></td>
+                            <td th:text="${h.holidayName}">-</td>
+                            <td th:text="${h.countryCode}">IN</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                    <div th:if="${#lists.isEmpty(holidays)}" class="empty-state small">
+                        <p>No holidays configured. Edit <code>application.yml</code> → <code>app.master.holidays</code></p>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <i class="fa fa-users"></i> Roster
+                    <span class="badge badge-blue ml-2" th:text="${resourceCount} + ' resources'"></span>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        <i class="fa fa-circle-info"></i>
+                        Edit <code>app.master.resources</code> in <code>application.yml</code> and restart to update.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Upload History ───────────────────────────────────────────────── -->
+    <div class="card mt-4">
+        <div class="card-header"><i class="fa fa-history"></i> Upload History</div>
+        <div class="card-body p-0">
+            <div th:if="${#lists.isEmpty(sessions)}" class="empty-state">
+                <i class="fa fa-inbox fa-3x"></i>
+                <p>No uploads yet. Upload an Excel file above to get started.</p>
+            </div>
+            <table th:if="${!#lists.isEmpty(sessions)}" class="data-table">
+                <thead>
+                <tr><th>Session</th><th>File</th><th>Sheets</th><th>Uploaded</th><th>Status</th><th></th></tr>
+                </thead>
+                <tbody>
+                <tr th:each="s : ${sessions}">
+                    <td><code th:text="${#strings.substring(s.sessionId,0,8) + '…'}"></code></td>
+                    <td><i class="fa fa-file-excel text-green"></i> <span th:text="${s.fileName}"></span></td>
+                    <td th:text="${s.sheetCount}">0</td>
+                    <td th:text="${#temporals.format(s.uploadedAt,'dd-MMM-yyyy HH:mm')}">-</td>
+                    <td>
+                        <span th:class="${s.status == 'PARSED'} ? 'badge badge-green' : 'badge badge-gray'"
+                              th:text="${s.status}">-</span>
+                    </td>
+                    <td>
+                        <a th:href="@{/view/{id}(id=${s.sessionId})}" class="btn btn-sm btn-primary">
+                            <i class="fa fa-eye"></i> View
+                        </a>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>
+
+<footer th:replace="fragments/layout :: footer"></footer>
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

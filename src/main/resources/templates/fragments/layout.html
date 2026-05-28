@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head th:fragment="head(title)">
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title th:text="${title} + ' | Timesheet Validator'">Timesheet Validator</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}"/>
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+          crossorigin="anonymous"/>
+</head>
+
+<nav th:fragment="navbar" class="navbar">
+    <a th:href="@{/}" class="navbar-brand">
+        <i class="fa-solid fa-table-cells"></i>
+        <span>Timesheet Validator</span>
+        <small>Timesheet Validator</small>
+    </a>
+    <ul class="navbar-links">
+        <li><a th:href="@{/}" class="nav-link"><i class="fa fa-house"></i> Home</a></li>
+        <li><a href="/h2-console" target="_blank" class="nav-link"><i class="fa fa-database"></i> H2 DB</a></li>
+    </ul>
+</nav>
+
+<footer th:fragment="footer" class="footer">
+    <span>Timesheet Viewer & Validator &copy; 2026</span>
+<!--
+    <span>Spring Boot 2.7 · Java 17 · Apache POI · H2</span>
+-->
+</footer>
+</html>

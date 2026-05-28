@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head th:replace="fragments/layout :: head('Viewer')"></head>
+<body>
+<nav th:replace="fragments/layout :: navbar"></nav>
+
+<main class="main-content viewer-main">
+
+    <!-- ── Page Header ──────────────────────────────────────────────────── -->
+    <div class="page-header">
+        <div>
+            <h1><i class="fa fa-table-cells"></i>
+                <span th:text="${session.fileName}">workbook.xlsx</span>
+            </h1>
+            <p class="subtitle">
+                <span th:text="${session.sheetCount}">0</span> sheets
+                &bull; Uploaded: <span th:text="${#temporals.format(session.uploadedAt,'dd-MMM-yyyy HH:mm')}"></span>
+            </p>
+        </div>
+        <div class="page-actions">
+            <a th:href="@{/}" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back</a>
+            <form th:action="@{/validate/{id}(id=${session.sessionId})}" method="post" style="display:inline">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fa fa-shield-halved"></i> Re-Validate
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Flash messages -->
+    <div th:if="${success}" class="alert alert-success">
+        <i class="fa fa-circle-check"></i> <span th:text="${success}"></span>
+    </div>
+    <div th:if="${warning}" class="alert alert-warning">
+        <i class="fa fa-triangle-exclamation"></i> <span th:text="${warning}"></span>
+    </div>
+
+    <!-- ── Validation Summary Bar ────────────────────────────────────────── -->
+    <div class="validation-bar"
+         th:classappend="${errorCount > 0} ? ' has-errors' : (${warningCount > 0} ? ' has-warnings' : ' all-clear')">
+        <div class="vbar-item">
+            <i th:class="${errorCount > 0} ? 'fa fa-circle-xmark' : 'fa fa-circle-check'"></i>
+            <span th:text="${errorCount} + ' Critical Error(s)'"
+                  th:classappend="${errorCount > 0} ? ' text-red' : ' text-green'">0 Critical</span>
+        </div>
+        <div class="vbar-sep">|</div>
+        <div class="vbar-item">
+            <i class="fa fa-triangle-exclamation"></i>
+            <span th:text="${warningCount} + ' Warning(s)'"
+                  th:classappend="${warningCount > 0} ? ' text-orange' : ''">0 Warnings</span>
+        </div>
+        <div class="vbar-sep">|</div>
+        <div class="vbar-item text-muted small">
+            <i class="fa fa-circle-info"></i>
+            Hover over highlighted cells to see details. Formula cells show
+            <kbd>=formula</kbd> on hover.
+        </div>
+    </div>
+
+    <!-- ── Issues Panel (collapsible) ────────────────────────────────────── -->
+    <div th:if="${!#lists.isEmpty(allIssues)}" class="issues-panel" id="issuesPanel">
+        <div class="issues-header" onclick="toggleIssues()">
+            <span><i class="fa fa-list-check"></i> Validation Issues
+                (<span th:text="${errorCount + warningCount}">0</span>)</span>
+            <i class="fa fa-chevron-down" id="issuesChevron"></i>
+        </div>
+        <div class="issues-body" id="issuesBody">
+            <table class="data-table small-table">
+                <thead>
+                <tr><th>Rule</th><th>Severity</th><th>Sheet</th><th>Row</th><th>Field</th><th>Message</th></tr>
+                </thead>
+                <tbody>
+                <tr th:each="issue : ${allIssues}"
+                    th:class="${issue.severity == 'CRITICAL'} ? 'row-error' : 'row-warning'">
+                    <td><span th:class="${issue.severity == 'CRITICAL'} ? 'badge badge-red' : 'badge badge-orange'"
+                              th:text="${issue.ruleId}"></span></td>
+                    <td th:text="${issue.severity}">-</td>
+                    <td th:text="${issue.sheetName}">-</td>
+                    <td th:text="${issue.rowIdx != null and issue.rowIdx >= 0} ? ('Row ' + (issue.rowIdx + 1)) : 'Multiple'">-</td>
+                    <td th:text="${issue.fieldName}">-</td>
+                    <td th:text="${issue.message}">-</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ── Sheet Tabs ─────────────────────────────────────────────────────── -->
+    <div class="sheet-tabs-wrapper">
+        <div class="sheet-tabs" id="sheetTabs">
+            <button th:each="sheet, iStat : ${sheets}"
+                    th:id="'tab-btn-' + ${iStat.index}"
+                    th:class="${iStat.index == activeTab} ? 'sheet-tab active' : 'sheet-tab'"
+                    th:onclick="'showSheet(' + ${iStat.index} + ')'"
+                    th:text="${sheet.sheetName}">Sheet</button>
+        </div>
+        <div class="sheet-info" id="sheetInfo">
+            <!-- filled by JS -->
+        </div>
+    </div>
+
+    <!-- ── Sheet Content Panels ───────────────────────────────────────────── -->
+    <div th:each="sheet, iStat : ${sheets}"
+         th:id="'sheet-' + ${iStat.index}"
+         th:class="${iStat.index == activeTab} ? 'sheet-panel active' : 'sheet-panel'"
+         class="sheet-panel">
+
+        <div class="table-wrapper">
+            <table class="excel-table" th:id="'tbl-' + ${iStat.index}">
+                <thead>
+                <!-- Row numbers header -->
+                <tr class="row-num-header">
+                    <th class="row-num-cell corner">#</th>
+                    <th th:each="ci : ${#numbers.sequence(0, sheet.colCount - 1)}"
+                        class="col-letter"
+                        th:text="${T(com.timesheet.validator.util.ExcelUtil).colLetter(ci)}">A</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="row, rStat : ${sheet.rows}">
+                    <!-- Row number -->
+                    <td class="row-num-cell" th:text="${rStat.index + 1}">1</td>
+
+                    <!-- Data cells -->
+                    <td th:each="cell : ${row}"
+                        th:class="${cell.header} ? 'excel-cell header-cell' :
+                                   (${cell.severity == 'CRITICAL'} ? 'excel-cell cell-error' :
+                                   (${cell.severity == 'WARNING'}  ? 'excel-cell cell-warning' :
+                                   (${cell.formula != null}        ? 'excel-cell cell-formula' :
+                                    'excel-cell')))"
+                        th:attr="data-formula=${cell.formula},
+                                 data-validation=${cell.validationMsg},
+                                 data-type=${cell.cellType}"
+                        th:title="${cell.formula != null ? cell.formula : (cell.validationMsg != null ? cell.validationMsg : '')}">
+
+                        <!-- Cell content -->
+                        <span class="cell-content" th:text="${cell.displayValue}"></span>
+
+                        <!-- Formula indicator -->
+                        <span th:if="${cell.formula != null}" class="formula-indicator"
+                              title="Has formula">
+                            <i class="fa fa-function fa-xs"></i>
+                        </span>
+
+                        <!-- Validation indicator -->
+                        <span th:if="${cell.validationMsg != null}"
+                              th:class="${cell.severity == 'CRITICAL'} ? 'validation-indicator error' : 'validation-indicator warning'">
+                            <i th:class="${cell.severity == 'CRITICAL'} ? 'fa fa-xmark fa-xs' : 'fa fa-exclamation fa-xs'"></i>
+                        </span>
+
+                        <!-- Tooltip -->
+                        <div th:if="${cell.formula != null or cell.validationMsg != null}"
+                             class="cell-tooltip">
+                            <div th:if="${cell.cellType == 'NUMERIC' and cell.displayValue != null
+                                 and #strings.contains(cell.displayValue, '(')}"
+                                 class="tooltip-date">
+                                <i class="fa fa-calendar-day"></i>
+                                <span th:text="${cell.displayValue}"></span>
+                            </div>
+                            <div th:if="${cell.validationMsg != null}"
+                                 th:class="${cell.severity == 'CRITICAL'} ? 'tooltip-error' : 'tooltip-warning'">
+                                <i th:class="${cell.severity == 'CRITICAL'} ? 'fa fa-circle-xmark' : 'fa fa-triangle-exclamation'"></i>
+                                <span th:text="${cell.validationMsg}"></span>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Sheet stats bar -->
+        <div class="sheet-stats">
+            <span><i class="fa fa-table"></i>
+                <span th:text="${sheet.rowCount}">0</span> rows ×
+                <span th:text="${sheet.colCount}">0</span> columns
+            </span>
+            <span th:if="${sheet.sheetName == 'Timesheet'}" class="ml-2">
+                <span th:if="${errorCount > 0}" class="badge badge-red">
+                    <i class="fa fa-triangle-exclamation"></i>
+                    <span th:text="${errorCount}"></span> validation error(s)
+                </span>
+                <span th:if="${errorCount == 0}" class="badge badge-green">
+                    <i class="fa fa-circle-check"></i> Valid
+                </span>
+            </span>
+        </div>
+    </div>
+
+    <!-- ── Legend ─────────────────────────────────────────────────────────── -->
+    <div class="legend card mt-3">
+        <div class="card-body legend-body">
+            <span class="legend-item"><span class="legend-swatch header-swatch"></span> Header row</span>
+            <span class="legend-item"><span class="legend-swatch formula-swatch"></span> Formula cell (hover for formula)</span>
+            <span class="legend-item"><span class="legend-swatch error-swatch"></span> Critical validation error</span>
+            <span class="legend-item"><span class="legend-swatch warning-swatch"></span> Warning</span>
+            <span class="legend-item ml-auto text-muted small">
+                <i class="fa fa-hand-pointer"></i> Hover any highlighted cell for details
+            </span>
+        </div>
+    </div>
+
+</main>
+
+<footer th:replace="fragments/layout :: footer"></footer>
+
+<!-- Sheet metadata for JS -->
+<script th:inline="javascript">
+    const SHEET_DATA = /*[[${sheets}]]*/ [];
+</script>
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

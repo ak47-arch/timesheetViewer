@@ -1,0 +1,11 @@
+package com.timesheet.validator.domain;
+import lombok.*; import javax.persistence.*; import java.math.BigDecimal; import java.time.LocalDate;
+@Entity @Table(name="RESOURCE") @Data @Builder @NoArgsConstructor @AllArgsConstructor
+public class Resource {
+    @Id @GeneratedValue(strategy=GenerationType.IDENTITY) private Long id;
+    @Column(name="RESOURCE_ID",unique=true,nullable=false) private String resourceId;
+    @Column(name="NAME",nullable=false) private String name;
+    @Column(name="DAILY_RATE_USD") private BigDecimal dailyRateUsd;
+    @Column(name="START_DATE") private LocalDate startDate;
+    @Column(name="END_DATE") private LocalDate endDate;
+}
