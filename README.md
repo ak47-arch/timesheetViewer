@@ -1,4 +1,4 @@
-# XYZ SoftDev — Excel Viewer & Validator
+# Timesheet Viewer & Validator
 
 Upload any Excel `.xlsx` workbook → view all sheets in tabs → automatic validation.
 
