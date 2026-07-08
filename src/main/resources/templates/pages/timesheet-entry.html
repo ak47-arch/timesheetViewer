@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security" lang="en">
+<head th:replace="fragments/layout :: head('Log Timesheet')"></head>
+<body class="ts-body">
+<nav th:replace="fragments/layout :: navbar"></nav>
+
+<main class="ts-main">
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       TOP IDENTITY BAR
+  ════════════════════════════════════════════════════════════════════════ -->
+  <div class="ts-identity-bar">
+    <div class="ts-identity-left">
+      <div class="ts-avatar" th:text="${#strings.substring(resourceName,0,1).toUpperCase()}">A</div>
+      <div>
+        <div class="ts-identity-name" th:text="${resourceName}">Resource Name</div>
+        <div class="ts-identity-meta">
+          SOW <code th:text="${expectedSow}">SOW</code>
+          &bull; Max <strong th:text="${maxHours}">8</strong> hrs/day
+        </div>
+      </div>
+    </div>
+    <div class="ts-identity-actions">
+      <a th:href="@{/timesheet/my-entries}" class="ts-pill-btn">
+        <i class="fa fa-chart-gantt"></i> My Timesheet
+      </a>
+      <a sec:authorize="hasAnyRole('MANAGER','ADMIN')"
+         th:href="@{/timesheet/all-entries}" class="ts-pill-btn">
+        <i class="fa fa-users-between-lines"></i> Team View
+      </a>
+    </div>
+  </div>
+
+  <!-- Flash -->
+  <div th:if="${success}" class="ts-toast ts-toast-success" id="flashMsg">
+    <i class="fa fa-circle-check"></i> <span th:text="${success}"></span>
+    <button onclick="this.parentElement.remove()" class="ts-toast-close">×</button>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       DATE NAV STRIP
+  ════════════════════════════════════════════════════════════════════════ -->
+  <div class="ts-date-strip" id="dateStrip">
+    <!-- Days rendered by JS from activeDate -->
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       MAIN CANVAS — Day tracker LEFT, Entry Form RIGHT
+  ════════════════════════════════════════════════════════════════════════ -->
+  <div class="ts-canvas">
+
+    <!-- ── LEFT: Day tracker ──────────────────────────────────────────── -->
+    <div class="ts-day-panel">
+
+      <!-- Day header -->
+      <div class="ts-day-header">
+        <div class="ts-day-label" id="dayLabel">Today</div>
+        <div class="ts-day-date" th:text="${activeDate}">2026-05-30</div>
+      </div>
+
+      <!-- Radial progress clock -->
+      <div class="ts-clock-wrap">
+        <svg class="ts-clock" viewBox="0 0 120 120">
+          <circle class="ts-clock-track" cx="60" cy="60" r="50"/>
+          <circle class="ts-clock-fill" cx="60" cy="60" r="50" id="clockFill"
+                  stroke-dasharray="0 314"/>
+          <text class="ts-clock-num" x="60" y="55" id="clockLogged">0.0</text>
+          <text class="ts-clock-sub" x="60" y="70">/ <tspan th:text="${maxHours}">8</tspan> hrs</text>
+        </svg>
+        <div class="ts-clock-remaining">
+          <span id="remainingLabel">
+            <span th:text="${remainingHours}">8.0</span> hrs remaining
+          </span>
+        </div>
+      </div>
+
+      <!-- Segmented hour bar -->
+      <div class="ts-hour-segments" id="hourSegments">
+        <!-- Filled by JS -->
+      </div>
+      <div class="ts-seg-labels">
+        <span>0</span><span>2</span><span>4</span><span>6</span>
+        <span th:text="${maxHours}">8</span>
+      </div>
+
+      <!-- Tasks logged for this day -->
+      <div class="ts-day-tasks" id="dayTaskList">
+        <div class="ts-tasks-title">
+          <i class="fa fa-layer-group"></i> Tasks for this day
+          <span class="ts-task-count badge badge-blue"
+                th:text="${#lists.size(dayTasks)}">0</span>
+        </div>
+
+        <!-- Empty state -->
+        <div th:if="${#lists.isEmpty(dayTasks)}" class="ts-tasks-empty">
+          <i class="fa fa-inbox"></i>
+          <span>No tasks logged yet — add your first entry →</span>
+        </div>
+
+        <!-- Task cards -->
+        <div th:each="task, tStat : ${dayTasks}" class="ts-task-card"
+             th:classappend="${task.status == 'WEEKEND-OVERRIDE'} ? ' ts-task-override' : ''">
+          <div class="ts-task-pill"
+               th:style="${'background:' + (tStat.index == 0 ? 'var(--ts-c1)' : tStat.index == 1 ? 'var(--ts-c2)' : tStat.index == 2 ? 'var(--ts-c3)' : 'var(--ts-c4)')}">
+            <span th:text="${task.hours}">0</span>h
+          </div>
+          <div class="ts-task-body">
+            <div class="ts-task-project">
+              <strong th:text="${task.project}">Project</strong>
+              <span th:if="${task.subProject != null and !task.subProject.isEmpty()}"
+                    class="ts-task-sub" th:text="'/ ' + ${task.subProject}"></span>
+            </div>
+            <div class="ts-task-desc"
+                 th:text="${task.task != null and !task.task.isEmpty() ? #strings.abbreviate(task.task, 60) : 'No description'}">
+            </div>
+            <div class="ts-task-meta">
+              <code th:text="${task.projectCode}">—</code>
+              <span th:if="${task.status == 'WEEKEND-OVERRIDE'}"
+                    class="badge badge-orange" style="font-size:.68rem">override</span>
+            </div>
+          </div>
+          <form th:action="@{/timesheet/delete/{id}(id=${task.id})}" method="post"
+                class="ts-task-del"
+                onsubmit="return confirm('Remove this task entry?')" >
+            <input type="hidden" name="date" th:value="${activeDate}"/>
+            <button type="submit" class="ts-del-btn" title="Remove task">
+              <i class="fa fa-xmark"></i>
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── RIGHT: Entry Form ───────────────────────────────────────────── -->
+    <div class="ts-form-panel">
+
+      <!-- Validation errors -->
+      <div th:if="${validationErrors != null and !#lists.isEmpty(validationErrors)}"
+           class="ts-error-banner">
+        <div class="ts-error-icon"><i class="fa fa-triangle-exclamation"></i></div>
+        <div>
+          <strong>Entry blocked</strong>
+          <ul>
+            <li th:each="err : ${validationErrors}" th:text="${err}"></li>
+          </ul>
+        </div>
+      </div>
+
+      <form th:action="@{/timesheet}" th:object="${form}" method="post" id="tsForm">
+
+        <!-- ── Section: When ──────────────────────────────────────────── -->
+        <div class="ts-section-label"><i class="fa fa-calendar-days"></i> When</div>
+        <div class="ts-when-row">
+          <div class="ts-field">
+            <input type="date" id="entryDate" th:field="*{entryDate}"
+                   class="ts-input ts-date-input"
+                   onchange="onDateChange(this)" required/>
+            <div class="ts-field-hint" id="dateHint"></div>
+          </div>
+        </div>
+
+        <!-- Weekend override -->
+        <div class="ts-override-panel" id="overridePanel" style="display:none">
+          <div class="ts-override-inner">
+            <label class="ts-override-label">
+              <input type="checkbox" id="weekendOverride" th:field="*{weekendOverride}"
+                     onchange="onOverrideChange()" class="ts-checkbox"/>
+              <span class="ts-override-toggle">
+                <i class="fa fa-calendar-check"></i>
+                Weekend Override
+                <span class="ts-badge-pill ts-badge-warn">Special Provision</span>
+              </span>
+            </label>
+            <p class="ts-override-note">Required: select a mandatory reason below</p>
+            <div class="ts-reason-wrap" id="reasonWrap" style="display:none">
+              <select id="weekendOverrideReason" th:field="*{weekendOverrideReason}"
+                      class="ts-input" onchange="onReasonChange(this)">
+                <option value="">— Select a reason —</option>
+                <option th:each="r : ${overrideReasons}" th:value="${r}" th:text="${r}"></option>
+              </select>
+              <div class="ts-field-hint ts-hint-ok" id="reasonHint" style="display:none">
+                <i class="fa fa-circle-check"></i> Override approved — entry will be flagged
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Section: How much ──────────────────────────────────────── -->
+        <div class="ts-section-label"><i class="fa fa-hourglass-half"></i> How much</div>
+        <div class="ts-hours-row">
+          <div class="ts-hours-input-wrap">
+            <input type="number" id="hours" th:field="*{hours}"
+                   class="ts-input ts-hours-big"
+                   step="0.5" min="0.5" th:attr="max=${maxHours}"
+                   placeholder="0.0" required oninput="onHoursChange()"/>
+            <span class="ts-hours-unit">hrs</span>
+          </div>
+          <!-- Quick-pick chips -->
+          <div class="ts-hour-chips">
+            <button type="button" class="ts-chip" onclick="setHours(1)">1h</button>
+            <button type="button" class="ts-chip" onclick="setHours(1.5)">1.5h</button>
+            <button type="button" class="ts-chip" onclick="setHours(2)">2h</button>
+            <button type="button" class="ts-chip" onclick="setHours(3)">3h</button>
+            <button type="button" class="ts-chip" onclick="setHours(4)">4h</button>
+            <button type="button" class="ts-chip ts-chip-max" id="remainChip"
+                    onclick="setRemaining()">Remaining</button>
+          </div>
+          <div class="ts-mini-bar-wrap">
+            <div class="ts-mini-bar-bg">
+              <div class="ts-mini-bar-logged" id="loggedBar"></div>
+              <div class="ts-mini-bar-new"    id="newBar"></div>
+            </div>
+            <div class="ts-mini-bar-labels">
+              <span id="loggedLabel">0 logged</span>
+              <span id="newLabel"></span>
+              <span id="maxLabel" th:text="${maxHours} + ' hr max'">8 hr max</span>
+            </div>
+          </div>
+          <span th:if="${#fields.hasErrors('hours')}"
+                class="ts-field-error" th:errors="*{hours}"></span>
+        </div>
+
+        <!-- ── Section: What ──────────────────────────────────────────── -->
+        <div class="ts-section-label"><i class="fa fa-briefcase"></i> What</div>
+        <div class="ts-what-grid">
+
+          <!-- Project — autocomplete -->
+          <div class="ts-field">
+            <label class="ts-label">Project <span class="ts-required">*</span></label>
+            <div class="ts-ac-wrap" id="acWrap_project">
+              <i class="fa fa-diagram-project ts-ac-icon"></i>
+              <input type="text" id="projectAc" class="ts-input ts-ac-input"
+                     placeholder="Type to search project…"
+                     autocomplete="off"
+                     th:value="${form.project}"
+                     oninput="acInput('project',this.value)"
+                     onfocus="acInput('project',this.value)"
+                     onblur="acBlur('project')"
+                     required/>
+              <input type="hidden" id="project" th:field="*{project}"/>
+              <div class="ts-ac-dropdown" id="acDrop_project"></div>
+            </div>
+            <span th:if="${#fields.hasErrors('project')}"
+                  class="ts-field-error" th:errors="*{project}"></span>
+          </div>
+
+          <!-- Sub-Project — autocomplete (populated after project selection) -->
+          <div class="ts-field">
+            <label class="ts-label">Sub-Project</label>
+            <div class="ts-ac-wrap" id="acWrap_subProject">
+              <i class="fa fa-code-branch ts-ac-icon"></i>
+              <input type="text" id="subProjectAc" class="ts-input ts-ac-input"
+                     placeholder="Type or select sub-project…"
+                     autocomplete="off"
+                     th:value="${form.subProject}"
+                     oninput="acInput('subProject',this.value)"
+                     onfocus="acInput('subProject',this.value)"
+                     onblur="acBlur('subProject')"/>
+              <input type="hidden" id="subProject" th:field="*{subProject}"/>
+              <div class="ts-ac-dropdown" id="acDrop_subProject"></div>
+            </div>
+          </div>
+
+          <!-- Project Code — autocomplete -->
+          <div class="ts-field">
+            <label class="ts-label">Project Code</label>
+            <div class="ts-ac-wrap" id="acWrap_projectCode">
+              <i class="fa fa-hashtag ts-ac-icon"></i>
+              <input type="text" id="projectCodeAc" class="ts-input ts-ac-input"
+                     placeholder="Type code…"
+                     autocomplete="off"
+                     th:value="${form.projectCode}"
+                     oninput="acInput('projectCode',this.value)"
+                     onfocus="acInput('projectCode',this.value)"
+                     onblur="acBlur('projectCode')"/>
+              <input type="hidden" id="projectCode" th:field="*{projectCode}"/>
+              <div class="ts-ac-dropdown" id="acDrop_projectCode"></div>
+            </div>
+          </div>
+
+          <!-- Team — autocomplete (small fixed list) -->
+          <div class="ts-field">
+            <label class="ts-label">Team</label>
+            <div class="ts-ac-wrap" id="acWrap_assignedTeam">
+              <i class="fa fa-people-group ts-ac-icon"></i>
+              <input type="text" id="assignedTeamAc" class="ts-input ts-ac-input"
+                     placeholder="R or F…"
+                     autocomplete="off"
+                     th:value="${form.assignedTeam}"
+                     oninput="acInput('assignedTeam',this.value)"
+                     onfocus="acInput('assignedTeam',this.value)"
+                     onblur="acBlur('assignedTeam')"/>
+              <input type="hidden" id="assignedTeam" th:field="*{assignedTeam}"/>
+              <div class="ts-ac-dropdown" id="acDrop_assignedTeam"></div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Task description -->
+        <div class="ts-field" style="margin-top:4px">
+          <label class="ts-label">
+            <i class="fa fa-pencil" style="color:var(--ts-accent)"></i>
+            Task Description
+          </label>
+          <textarea id="task" th:field="*{task}" class="ts-input ts-textarea"
+                    rows="3" maxlength="1000"
+                    placeholder="What did you work on? Describe the task clearly…"
+                    oninput="updateCharCount(this)"></textarea>
+          <div class="ts-char-count"><span id="charCount">0</span> / 1000</div>
+        </div>
+
+        <!-- SOW selection — visible dropdown populated from resource mapping -->
+        <div class="ts-field" style="margin-top:8px">
+          <label class="ts-label">
+            <i class="fa fa-file-contract" style="color:var(--ts-accent)"></i>
+            Statement of Work (SOW) <span class="ts-required">*</span>
+          </label>
+          <select id="sow" th:field="*{sow}" class="ts-input" required
+                  th:classappend="${#fields.hasErrors('sow')} ? ' ts-input-err' : ''"
+                  onchange="onSowChange(this)">
+            <option value="">— Select SOW —</option>
+            <option th:each="s : ${availableSows}"
+                    th:value="${s.sowNumber}"
+                    th:text="${s.sowNumber + ' — ' + (s.client != null ? s.client : '') + (s.description != null ? ' / ' + s.description : '')}"
+                    th:selected="${s.sowNumber == expectedSow}">
+            </option>
+          </select>
+          <div class="ts-sow-detail" id="sowDetail"></div>
+          <span th:if="${#fields.hasErrors('sow')}"
+                class="ts-field-error" th:errors="*{sow}"></span>
+        </div>
+
+        <!-- Hidden auto-filled -->
+        <input type="hidden" th:field="*{company}"/>
+        <input type="hidden" th:field="*{countryCode}"/>
+
+        <!-- Submit row -->
+        <div class="ts-submit-row">
+          <button type="submit" class="ts-submit-btn" id="submitBtn">
+            <i class="fa fa-plus-circle"></i>
+            Add Task Entry
+          </button>
+          <button type="button" class="ts-reset-btn" onclick="resetTsForm()">
+            <i class="fa fa-rotate-left"></i>
+          </button>
+        </div>
+      </form>
+
+      <!-- ── Info sidebar: rules + holidays ──────────────────────────── -->
+      <div class="ts-info-grid">
+        <div class="ts-info-card">
+          <div class="ts-info-title"><i class="fa fa-shield-halved"></i> Rules</div>
+          <div class="ts-rule-row"><span class="ts-rule-id ts-rule-crit">TS-01</span>
+            Max <strong th:text="${maxHours}">8</strong> hrs/day cumulative</div>
+          <div class="ts-rule-row"><span class="ts-rule-id ts-rule-crit">TS-02</span>
+            No weekends <em>(override available)</em></div>
+          <div class="ts-rule-row"><span class="ts-rule-id ts-rule-crit">TS-03</span>
+            No public holidays</div>
+          <div class="ts-rule-row"><span class="ts-rule-id ts-rule-crit">TS-06</span>
+            SOW = <code th:text="${expectedSow}">SOW</code></div>
+          <div class="ts-rule-row"><span class="ts-rule-id ts-rule-warn">TS-07</span>
+            Within engagement period</div>
+        </div>
+        <div class="ts-info-card">
+          <div class="ts-info-title"><i class="fa fa-calendar-xmark"></i> Blocked</div>
+          <div th:each="h : ${holidays}" class="ts-holiday-row">
+            <span class="ts-holiday-date" th:text="${h.holidayDate}"></span>
+            <span class="ts-holiday-name" th:text="${h.holidayName}"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Server data element — all values as HTML data attributes, no JS inline parser -->
+<div id="tsServerData" style="display:none"
+     th:attr="data-max-hours=${maxHours},
+              data-active-date=${activeDate},
+              data-logged-hours=${loggedHours},
+              data-remaining=${remainingHours}">
+</div>
+<!-- Project codes island for autocomplete -->
+<script type="application/json" id="projectCodesIsland" th:inline="none">
+[<th:block th:each="c,i : ${projectCodes}">"<th:block th:text="${c}"/>"<th:block th:if="${!i.last}">,</th:block></th:block>]
+</script>
+
+<!-- ── JSON data islands — rendered by Thymeleaf HTML mode, read by JS ────── -->
+
+<!-- SOW detail data island -->
+<script type="application/json" id="sowDataIsland" th:inline="none">
+{
+  <th:block th:each="s, iterStat : ${availableSows}">
+  "<th:block th:text="${s.sowNumber}"/>": {
+    "poNumber":    "<th:block th:text="${s.poNumber != null ? s.poNumber : ''}"/>",
+    "client":      "<th:block th:text="${s.client != null ? s.client : ''}"/>",
+    "description": "<th:block th:text="${s.description != null ? s.description : ''}"/>"
+  }<th:block th:if="${!iterStat.last}">,</th:block>
+  </th:block>
+}
+</script>
+
+<!-- Holiday dates island -->
+<script type="application/json" id="holidayDatesIsland" th:inline="none">
+[<th:block th:each="h, iterStat : ${holidays}">"<th:block th:text="${h.holidayDate}"/>"<th:block th:if="${!iterStat.last}">,</th:block></th:block>]
+</script>
+
+<footer th:replace="fragments/layout :: footer"></footer>
+
+<script>
+// ── Constants from server — read from data attributes (safe, no inline parser) ──
+const _tsData       = document.getElementById('tsServerData').dataset;
+const MAX_HOURS     = parseFloat(_tsData.maxHours)   || 8.0;
+const ACTIVE_DATE   = _tsData.activeDate             || '';
+const LOGGED_HOURS  = parseFloat(_tsData.loggedHours)|| 0;
+const REMAINING_HRS = parseFloat(_tsData.remaining)  || MAX_HOURS;
+const HOLIDAY_DATES = JSON.parse(document.getElementById('holidayDatesIsland').textContent || '[]');
+const TASK_COLORS   = ['#2E75B6','#538135','#C55A11','#5C3D8F','#C00000'];
+
+const PROJECT_MAP = {
+  'Australia Maintenance': ['APP Mod AB-OPX','UCP','MGCP Opex','MGCP L3','ARAS','SPTA','Border Service Hub'],
+  'Qatar Maintenance':     ['ARAS','UCP']
+};
+
+// ── Date utilities — always work in LOCAL calendar (no timezone shift) ────────
+/**
+ * Parse "yyyy-MM-dd" into {y,m,d} integers. Never uses new Date(string)
+ * which shifts by timezone in browsers (e.g. IST +5:30 rolls back midnight).
+ */
+function parseIso(iso) {
+  const p = iso.split('-').map(Number);
+  return { y: p[0], m: p[1] - 1, d: p[2] };
+}
+
+/** Add `delta` calendar days to an iso string. Works entirely on numbers. */
+function addDays(iso, delta) {
+  const { y, m, d } = parseIso(iso);
+  const dt = new Date(y, m, d + delta);   // local midnight — no timezone issue
+  return fmtDate(dt);
+}
+
+/** Format a Date object as yyyy-MM-dd using LOCAL date parts. */
+function fmtDate(dt) {
+  return dt.getFullYear() + '-' +
+    String(dt.getMonth() + 1).padStart(2, '0') + '-' +
+    String(dt.getDate()).padStart(2, '0');
+}
+
+/** Return JS Date at local midnight for an iso string. */
+function localDate(iso) {
+  const { y, m, d } = parseIso(iso);
+  return new Date(y, m, d);   // local midnight — correct in all timezones
+}
+
+// ── Date strip (7 days centred on activeDate) ──────────────────────────────
+function buildDateStrip() {
+  const strip  = document.getElementById('dateStrip');
+  const DAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  strip.innerHTML = '';
+
+  // Previous-day arrow
+  const prev = document.createElement('a');
+  prev.className = 'ts-strip-arrow';
+  prev.innerHTML = '<i class="fa fa-chevron-left"></i>';
+  prev.href = '/timesheet/day?date=' + addDays(ACTIVE_DATE, -1);
+  strip.appendChild(prev);
+
+  // 7 day pills: -3 … 0 … +3
+  for (let i = -3; i <= 3; i++) {
+    const iso = addDays(ACTIVE_DATE, i);
+    const dt  = localDate(iso);             // local midnight — correct day-of-week
+    const btn = document.createElement('a');
+    btn.href  = '/timesheet/day?date=' + iso;
+    const isActive  = i === 0;
+    const isWeekend = dt.getDay() === 0 || dt.getDay() === 6;
+    const isHoliday = HOLIDAY_DATES.includes(iso);
+    btn.className = 'ts-strip-day' +
+      (isActive  ? ' ts-strip-active'  : '') +
+      (isWeekend ? ' ts-strip-weekend' : '') +
+      (isHoliday ? ' ts-strip-holiday' : '');
+    btn.innerHTML =
+      '<span class="ts-strip-dow">' + DAYS[dt.getDay()]    + '</span>' +
+      '<span class="ts-strip-num">' + dt.getDate()         + '</span>' +
+      '<span class="ts-strip-mon">' + MONTHS[dt.getMonth()]+ '</span>';
+    strip.appendChild(btn);
+  }
+
+  // Next-day arrow
+  const nxt = document.createElement('a');
+  nxt.className = 'ts-strip-arrow';
+  nxt.innerHTML = '<i class="fa fa-chevron-right"></i>';
+  nxt.href = '/timesheet/day?date=' + addDays(ACTIVE_DATE, 1);
+  strip.appendChild(nxt);
+}
+
+// ── Day label ──────────────────────────────────────────────────────────────
+function setDayLabel() {
+  const el    = document.getElementById('dayLabel');
+  const date  = localDate(ACTIVE_DATE);          // local midnight — correct
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff  = Math.round((date - today) / 86400000);
+  const LABELS = { '-1': 'Yesterday', '0': 'Today', '1': 'Tomorrow' };
+  const DAYS   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  el.textContent = LABELS[String(diff)] ?? DAYS[date.getDay()];
+}
+
+// ── Radial clock ───────────────────────────────────────────────────────────
+function updateClock(logged) {
+  const circ = 2 * Math.PI * 50;           // r=50 → 314.16
+  const pct  = Math.min(logged / MAX_HOURS, 1);
+  const fill = document.getElementById('clockFill');
+  const num  = document.getElementById('clockLogged');
+  const rem  = document.getElementById('remainingLabel');
+  fill.style.strokeDasharray = (pct * circ) + ' ' + circ;
+  fill.style.stroke = logged > MAX_HOURS ? '#C00000'
+                    : logged >= MAX_HOURS * 0.9 ? '#C55A11' : '#538135';
+  num.textContent  = logged.toFixed(1);
+  const remHrs = Math.max(MAX_HOURS - logged, 0);
+  rem.innerHTML = remHrs > 0
+    ? `<span>${remHrs.toFixed(1)} hrs remaining</span>`
+    : `<span style="color:#538135"><i class="fa fa-circle-check"></i> Day complete!</span>`;
+}
+
+// ── Segmented hour bar ─────────────────────────────────────────────────────
+function updateHourSegments(logged) {
+  const wrap  = document.getElementById('hourSegments');
+  const total = MAX_HOURS;
+  const segs  = total * 2;  // half-hour segments
+  wrap.innerHTML = '';
+  for (let i = 0; i < segs; i++) {
+    const seg = document.createElement('div');
+    const val = (i + 1) * 0.5;
+    seg.className = 'ts-seg' + (val <= logged ? ' ts-seg-on' : '');
+    wrap.appendChild(seg);
+  }
+}
+
+// ── Mini stacked bar ───────────────────────────────────────────────────────
+function updateMiniBar(newHrs) {
+  const logged  = parseFloat(LOGGED_HOURS) || 0;
+  const logPct  = Math.min((logged  / MAX_HOURS) * 100, 100);
+  const newPct  = Math.min((newHrs  / MAX_HOURS) * 100, Math.max(0, 100 - logPct));
+  document.getElementById('loggedBar').style.width = logPct + '%';
+  document.getElementById('newBar').style.width    = newPct + '%';
+  document.getElementById('newBar').style.background =
+    (logged + newHrs) > MAX_HOURS ? '#C00000' : '#2E75B6';
+  document.getElementById('loggedLabel').textContent = logged + ' logged';
+  document.getElementById('newLabel').textContent    = newHrs > 0 ? '+ ' + newHrs : '';
+  // Update remaining chip
+  const remain = Math.max(MAX_HOURS - logged, 0);
+  document.getElementById('remainChip').textContent =
+    remain > 0 ? remain.toFixed(1) + 'h left' : 'Full';
+  document.getElementById('remainChip').disabled = remain <= 0;
+}
+
+// ── Date change ────────────────────────────────────────────────────────────
+function onDateChange(inp) {
+  const hint  = document.getElementById('dateHint');
+  const panel = document.getElementById('overridePanel');
+  const chk   = document.getElementById('weekendOverride');
+  if (!inp.value) { hint.innerHTML=''; return; }
+  const [y,m,d] = inp.value.split('-').map(Number);
+  const date  = new Date(y, m-1, d);
+  const dow   = date.getDay();
+  const DAYS  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+  if (HOLIDAY_DATES.includes(inp.value)) {
+    hint.innerHTML = '<span class="ts-hint-err"><i class="fa fa-ban"></i> Public holiday — cannot log time</span>';
+    inp.classList.add('ts-input-err'); panel.style.display='none';
+  } else if (dow===0||dow===6) {
+    hint.innerHTML = '<span class="ts-hint-warn"><i class="fa fa-triangle-exclamation"></i> '+DAYS[dow]+' — use override below</span>';
+    inp.classList.remove('ts-input-err'); inp.classList.add('ts-input-warn');
+    panel.style.display='block';
+  } else {
+    hint.innerHTML = '<span class="ts-hint-ok"><i class="fa fa-circle-check"></i> '+DAYS[dow]+'</span>';
+    inp.classList.remove('ts-input-err','ts-input-warn');
+    panel.style.display='none';
+    if(chk) chk.checked=false;
+  }
+  // Refresh remaining via AJAX
+  fetchRemaining(inp.value);
+}
+
+function fetchRemaining(dateVal) {
+  fetch('/timesheet/api/remaining?date=' + dateVal)
+    .then(r => r.json())
+    .then(data => {
+      updateClock(parseFloat(data.logged) || 0);
+      updateHourSegments(parseFloat(data.logged) || 0);
+      const remain = parseFloat(data.remaining) || 0;
+      document.getElementById('remainChip').textContent =
+        remain > 0 ? remain.toFixed(1) + 'h left' : 'Full';
+    }).catch(() => {});
+}
+
+// ── Override checkbox ──────────────────────────────────────────────────────
+function onOverrideChange() {
+  const on = document.getElementById('weekendOverride').checked;
+  document.getElementById('reasonWrap').style.display = on ? 'block' : 'none';
+}
+function onReasonChange(sel) {
+  document.getElementById('reasonHint').style.display = sel.value ? 'block' : 'none';
+}
+
+// ── Hours input ────────────────────────────────────────────────────────────
+function onHoursChange() {
+  const val = parseFloat(document.getElementById('hours').value)||0;
+  updateMiniBar(val);
+}
+function setHours(h) {
+  document.getElementById('hours').value = h;
+  onHoursChange();
+}
+function setRemaining() {
+  const logged = parseFloat(LOGGED_HOURS)||0;
+  const rem    = Math.max(MAX_HOURS - logged, 0);
+  if (rem > 0) { setHours(rem); }
+}
+
+// ── Autocomplete engine ─────────────────────────────────────────────────────
+const AC_OPTIONS = {
+  project:      Object.keys(PROJECT_MAP),
+  subProject:   [],
+  projectCode:  JSON.parse(document.getElementById('projectCodesIsland').textContent || '[]'),
+  assignedTeam: ['R — Resource', 'F — Functional']
+};
+
+const AC_VALUES = { 'R — Resource': 'R', 'F — Functional': 'F' };
+
+let acActiveField = null;
+
+function acInput(field, query) {
+  const opts = AC_OPTIONS[field] || [];
+  const q    = query.trim().toLowerCase();
+  const matches = q ? opts.filter(o => o.toLowerCase().includes(q)) : opts;
+  const drop = document.getElementById('acDrop_' + field);
+  drop.innerHTML = '';
+  if (matches.length === 0) { drop.style.display = 'none'; return; }
+  matches.slice(0, 20).forEach(opt => {
+    const item = document.createElement('div');
+    item.className = 'ts-ac-item';
+    const idx = q ? opt.toLowerCase().indexOf(q) : -1;
+    item.innerHTML = idx >= 0
+      ? escHtml(opt.slice(0, idx)) +
+        '<mark class="ts-ac-hl">' + escHtml(opt.slice(idx, idx + q.length)) + '</mark>' +
+        escHtml(opt.slice(idx + q.length))
+      : escHtml(opt);
+    item.onmousedown = (e) => { e.preventDefault(); acSelect(field, opt); };
+    drop.appendChild(item);
+  });
+  drop.style.display = 'block';
+  acActiveField = field;
+}
+
+function acSelect(field, display) {
+  const stored = AC_VALUES[display] || display;
+  const visInp = document.getElementById(field + 'Ac');
+  const hidInp = document.getElementById(field);
+  if (visInp) visInp.value = display;
+  if (hidInp) hidInp.value = stored;
+  const drop = document.getElementById('acDrop_' + field);
+  if (drop) drop.style.display = 'none';
+  acActiveField = null;
+  if (field === 'project') {
+    AC_OPTIONS.subProject = PROJECT_MAP[stored] || [];
+    const subAc  = document.getElementById('subProjectAc');
+    const subHid = document.getElementById('subProject');
+    if (subAc)  subAc.value  = '';
+    if (subHid) subHid.value = '';
+    const subDrop = document.getElementById('acDrop_subProject');
+    if (subDrop) subDrop.style.display = 'none';
+  }
+}
+
+function acBlur(field) {
+  setTimeout(() => {
+    const drop = document.getElementById('acDrop_' + field);
+    if (drop) drop.style.display = 'none';
+    const visInp = document.getElementById(field + 'Ac');
+    if (!visInp) return;
+    const typed = visInp.value.trim();
+    const opts  = AC_OPTIONS[field] || [];
+    const exact = opts.find(o => o.toLowerCase() === typed.toLowerCase());
+    if (exact) {
+      acSelect(field, exact);
+    } else if (!typed) {
+      const hidInp = document.getElementById(field);
+      if (hidInp) hidInp.value = '';
+    }
+    acActiveField = null;
+  }, 160);
+}
+
+// Close dropdowns on outside click
+document.addEventListener('click', e => {
+  if (!e.target.closest('.ts-ac-wrap')) {
+    document.querySelectorAll('.ts-ac-dropdown').forEach(d => d.style.display = 'none');
+    acActiveField = null;
+  }
+});
+
+// Arrow key / Enter / Escape navigation
+document.addEventListener('keydown', e => {
+  if (!acActiveField) return;
+  const drop = document.getElementById('acDrop_' + acActiveField);
+  if (!drop || drop.style.display === 'none') return;
+  const items  = Array.from(drop.querySelectorAll('.ts-ac-item'));
+  const active = drop.querySelector('.ts-ac-item.ts-ac-active');
+  const idx    = active ? items.indexOf(active) : -1;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    const next = items[(idx + 1) % items.length];
+    if (active) active.classList.remove('ts-ac-active');
+    next.classList.add('ts-ac-active');
+    next.scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    const prev = items[(idx - 1 + items.length) % items.length];
+    if (active) active.classList.remove('ts-ac-active');
+    prev.classList.add('ts-ac-active');
+    prev.scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter' && active) {
+    e.preventDefault();
+    active.onmousedown(e);
+  } else if (e.key === 'Escape') {
+    drop.style.display = 'none';
+    acActiveField = null;
+  }
+});
+
+// ── Char counter ───────────────────────────────────────────────────────────
+function updateCharCount(ta) {
+  document.getElementById('charCount').textContent = ta.value.length;
+}
+
+// ── Reset ──────────────────────────────────────────────────────────────────
+function resetTsForm() {
+  document.getElementById('tsForm').reset();
+  document.getElementById('dateHint').innerHTML            = '';
+  document.getElementById('overridePanel').style.display   = 'none';
+  document.getElementById('reasonWrap').style.display      = 'none';
+  document.getElementById('reasonHint').style.display      = 'none';
+  document.getElementById('charCount').textContent         = '0';
+  updateMiniBar(0);
+  // Clear all autocomplete visible inputs, hidden fields, dropdowns
+  ['project','subProject','projectCode','assignedTeam'].forEach(f => {
+    const vis  = document.getElementById(f + 'Ac');
+    const hid  = document.getElementById(f);
+    const drop = document.getElementById('acDrop_' + f);
+    if (vis)  vis.value  = '';
+    if (hid)  hid.value  = '';
+    if (drop) drop.style.display = 'none';
+  });
+  AC_OPTIONS.subProject = [];
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  buildDateStrip();
+  setDayLabel();
+  const logged = parseFloat(LOGGED_HOURS) || 0;
+  updateClock(logged);
+  updateHourSegments(logged);
+  updateMiniBar(0);
+
+  // Pre-set date input to activeDate
+  const di = document.getElementById('entryDate');
+  if (di && !di.value && ACTIVE_DATE) {
+    di.value = ACTIVE_DATE;
+    onDateChange(di);
+  } else if (di && di.value) {
+    onDateChange(di);
+  }
+
+  // Auto-dismiss flash after 4s
+  const flash = document.getElementById('flashMsg');
+  if (flash) setTimeout(() => flash.classList.add('ts-toast-hide'), 4000);
+});
+
+// ── SOW data — read from JSON data island (no inline Thymeleaf iteration) ──
+const SOW_DATA = JSON.parse(
+    document.getElementById('sowDataIsland').textContent || '{}'
+);
+
+function onSowChange(sel) {
+    const detail = document.getElementById('sowDetail');
+    if (!sel.value || !SOW_DATA[sel.value]) { detail.innerHTML = ''; return; }
+    const s = SOW_DATA[sel.value];
+    detail.innerHTML =
+        '<span class="ts-sow-badge"><i class="fa fa-building"></i> ' +
+        escHtml(s.client || '—') + '</span>' +
+        (s.poNumber ? ' &bull; PO: <code>' + escHtml(s.poNumber) + '</code>' : '') +
+        (s.description ? '<br><span class="ts-sow-desc">' + escHtml(s.description) + '</span>' : '');
+}
+
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

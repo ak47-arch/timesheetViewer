@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security" lang="en">
+<head th:replace="fragments/layout :: head('Access Denied')"></head>
+<body>
+<nav th:replace="fragments/layout :: navbar"></nav>
+<main class="main-content" style="max-width:600px;margin:60px auto;text-align:center">
+
+    <div style="font-size:5rem;margin-bottom:16px">🔒</div>
+
+    <h1 style="color:var(--navy);font-size:2rem;margin-bottom:8px">Access Denied</h1>
+    <p style="color:var(--dgray);margin-bottom:28px;font-size:1rem">
+        You don't have permission to view this page.<br/>
+        Your current role does not allow access to this section.
+    </p>
+
+    <!-- Role-aware navigation suggestion -->
+    <div sec:authorize="hasAnyRole('USER')" class="alert alert-success" style="text-align:left">
+        <i class="fa fa-circle-check"></i>
+        As a <strong>User</strong>, you can log your timesheet entries:
+        <a th:href="@{/timesheet}" class="btn btn-primary" style="margin-top:10px;display:inline-flex">
+            <i class="fa fa-clock"></i> Go to Log Time
+        </a>
+    </div>
+
+    <div sec:authorize="hasAnyRole('MANAGER','ADMIN')" class="alert alert-success" style="text-align:left">
+        <i class="fa fa-circle-check"></i>
+        <a th:href="@{/}" class="btn btn-primary" style="margin-top:10px;display:inline-flex">
+            <i class="fa fa-house"></i> Go to Home
+        </a>
+    </div>
+
+    <div style="margin-top:20px">
+        <a th:href="@{/logout}" class="btn btn-secondary">
+            <i class="fa fa-right-from-bracket"></i> Sign Out
+        </a>
+    </div>
+
+</main>
+<footer th:replace="fragments/layout :: footer"></footer>
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

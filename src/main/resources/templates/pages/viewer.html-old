@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security" lang="en">
+<head th:replace="fragments/layout :: head('Viewer')"></head>
+<body>
+<nav th:replace="fragments/layout :: navbar"></nav>
+
+<main class="main-content viewer-main">
+
+    <!-- ── Page Header ──────────────────────────────────────────────────── -->
+    <div class="page-header">
+        <div>
+            <h1><i class="fa fa-table-cells"></i>
+                <span th:text="${uploadSession.fileName}">workbook.xlsx</span>
+            </h1>
+            <p class="subtitle">
+                <span th:text="${uploadSession.sheetCount}">0</span> sheets
+                &bull; Uploaded: <span th:text="${#temporals.format(uploadSession.uploadedAt,'dd-MMM-yyyy HH:mm')}"></span>
+            </p>
+        </div>
+        <div class="page-actions">
+            <a th:href="@{/}" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back</a>
+            <form id="revalidateForm" th:action="${'/validate/' + uploadSession.sessionId}" method="post" style="display:inline">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fa fa-shield-halved"></i> Re-Validate
+                </button>
+            </form>
+            <!-- Export CSV -->
+            <div class="dropdown">
+                <button class="btn btn-secondary dropdown-toggle" onclick="toggleDropdown(this)">
+                    <i class="fa fa-download"></i> Export Issues
+                </button>
+                <div class="dropdown-menu">
+                    <a th:href="${'/export-csv/' + uploadSession.sessionId}" class="dropdown-item">
+                        <i class="fa fa-file-csv"></i> All Issues (.csv)
+                    </a>
+                    <a th:href="${'/export-csv/' + uploadSession.sessionId + '?filter=critical'}" class="dropdown-item">
+                        <i class="fa fa-circle-xmark text-red"></i> Critical Only (.csv)
+                    </a>
+                    <a th:href="${'/export-csv/' + uploadSession.sessionId + '?filter=warning'}" class="dropdown-item">
+                        <i class="fa fa-triangle-exclamation text-orange"></i> Warnings Only (.csv)
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<!--    Applied validations-->
+    <div class="card mb-3">
+
+        <div class="card-header validation-header collapsible-header"
+             onclick="toggleAppliedValidations()">
+
+            <div class="validation-title">
+
+                <i id="validationChevron"
+                   class="fa fa-chevron-down"></i>
+
+                <i class="fa fa-check-circle"></i>
+
+                Applied Validations
+
+                <span class="badge badge-blue ml-2"
+                      th:text="${#lists.size(enabledRules)}">
+                </span>
+
+            </div>
+
+            <button type="button"
+                    class="edit-rules-btn"
+                    onclick="event.stopPropagation(); openRulesModal();">
+
+                <i class="fa fa-sliders"></i>
+
+                Edit Rules
+
+            </button>
+
+        </div>
+
+        <div id="rulesModal" class="rules-modal">
+
+            <div class="rules-modal-content">
+
+                <div class="rules-modal-header">
+                    <h3>
+                        <i class="fa fa-sliders"></i>
+                        Edit Validation Rules
+                        <span id="modalRuleCount"
+                              class="rule-count-badge">
+                            0 Selected
+                        </span>
+                    </h3>
+
+                    <button type="button"
+                            class="close-btn"
+                            onclick="closeRulesModal()">
+                        &times;
+                    </button>
+                </div>
+
+                <!-- Saved rules from DB -->
+                <input type="hidden"
+                       id="savedRules"
+                       th:value="${uploadSession.enabledRules}">
+
+                <form th:action="@{/update-rules/{id}(id=${uploadSession.sessionId})}"
+                      method="post"
+                      id="rulesForm">
+
+                    <div class="rules-modal-body">
+
+                      <div class="rule-tabset" id="modalRuleTabset">
+                        <div class="rule-group"
+                             th:each="grp : ${ruleGroups}"
+                             th:classappend="${grp.alwaysOn} ? ' rule-group-locked' : ''"
+                             th:attr="data-sheet=${grp.sheetName},data-locked=${grp.alwaysOn}">
+
+                            <div class="rule-group-head">
+                                <div class="rule-group-title">
+                                    <i class="fa fa-table-list"></i>
+                                    <span th:text="${grp.sheetName}">Sheet</span>
+                                    <span class="rule-group-meta"
+                                          th:text="${#lists.size(grp.rules)} + ' rules'">rules</span>
+                                </div>
+                                <span th:if="${grp.alwaysOn}" class="always-on-pill"
+                                      title="These checks run automatically whenever this sheet is present">
+                                    <i class="fa fa-lock"></i> Always applied
+                                </span>
+                            </div>
+
+                            <div class="rule-group-body">
+                                <label class="rule-row"
+                                       th:each="r : ${grp.rules}"
+                                       th:classappend="${grp.alwaysOn} ? ' rule-row-locked' : ''">
+                                    <input type="checkbox"
+                                           name="rules"
+                                           th:value="${r.id}"
+                                           th:checked="${grp.alwaysOn} ? false : ${enabledRuleIds.contains(r.id)}"
+                                           th:disabled="${grp.alwaysOn}">
+                                    <span class="rule-badge" th:text="${r.id}">TS-01</span>
+                                    <span class="rule-text" th:text="${r.description}">rule</span>
+                                    <span th:classappend="${r.severity == 'CRITICAL'} ? ' sev-critical' : ' sev-warning'"
+                                          class="sev-tag" th:text="${r.severity}">CRITICAL</span>
+                                </label>
+                            </div>
+                        </div>
+                      </div><!-- /rule-tabset -->
+
+                        <div id="modalRuleError"
+                             class="alert alert-danger mt-2"
+                             style="display:none;">
+                            <i class="fa fa-circle-xmark"></i>
+                            Please select at least one validation rule.
+                        </div>
+
+                    </div>
+<!--                </form>-->
+
+                    <div class="rules-modal-footer">
+
+                        <div class="footer-left">
+
+                            <button type="button"
+                                    class="btn btn-secondary"
+                                    onclick="selectAllModalRules()">
+                                Select All
+                            </button>
+
+                            <button type="button"
+                                    class="btn btn-secondary"
+                                    onclick="clearAllModalRules()">
+                                Clear All
+                            </button>
+
+                        </div>
+
+                        <div class="footer-right">
+
+                            <button type="button"
+                                    class="btn btn-secondary"
+                                    onclick="closeRulesModal()">
+                                Cancel
+                            </button>
+
+                            <button type="submit"
+                                    id="saveRulesBtn"
+                                    class="btn btn-primary">
+                                Save & Re-Validate
+                            </button>
+
+                        </div>
+
+                    </div>
+                </form>
+            </div>
+
+        </div>
+
+
+
+        <div id="appliedValidationsBody" class="card-body validation-chip-container">
+
+        <span th:each="rule : ${enabledRules}"
+              class="validation-chip">
+
+            <i class="fa fa-check"></i>
+
+            <span th:text="${rule}"></span>
+
+        </span>
+
+        </div>
+    </div>
+
+    <!-- Flash messages -->
+    <div th:if="${success}" class="alert alert-success">
+        <i class="fa fa-circle-check"></i> <span th:text="${success}"></span>
+    </div>
+    <div th:if="${warning}" class="alert alert-warning">
+        <i class="fa fa-triangle-exclamation"></i> <span th:text="${warning}"></span>
+    </div>
+
+
+    <div th:if="${hasMandatoryErrors}"
+         class="alert alert-danger">
+
+        <i class="fa fa-circle-xmark"></i>
+
+        One or more mandatory fields are missing.
+        Please review the highlighted fields.
+
+    </div>
+
+
+    <!-- ── Issues Panel — jsGrid local table (no API call) ─────────────── -->
+    <div th:if="${errorCount > 0 or warningCount > 0}" class="issues-panel" id="issuesPanel">
+        <div class="issues-header" onclick="toggleIssues()">
+            <div class="issues-header-left">
+                <i class="fa fa-list-check"></i>
+                <span>Validation Issues</span>
+                <span class="issues-count-pill issues-count-crit" th:if="${errorCount > 0}"
+                      th:text="${errorCount} + ' Critical'"></span>
+                <span class="issues-count-pill issues-count-warn" th:if="${warningCount > 0}"
+                      th:text="${warningCount} + ' Warning'"></span>
+            </div>
+            <div class="issues-header-right">
+                <span class="issues-hint">Search, sort and filter inline</span>
+                <i class="fa fa-chevron-down issues-chevron" id="issuesChevron"></i>
+            </div>
+        </div>
+        <div class="issues-body" id="issuesBody">
+            <!-- jsGrid toolbar row -->
+            <div class="jg-toolbar">
+                <div class="jg-search-wrap">
+                    <i class="fa fa-magnifying-glass jg-search-icon"></i>
+                    <input type="text" id="jgSearch" class="jg-search-input"
+                           placeholder="Search rules, fields, messages…"
+                           oninput="jgFilter()"/>
+                </div>
+                <div class="jg-filter-pills">
+                    <button class="jg-pill jg-pill-active" data-filter="all"   onclick="jgSetFilter('all',this)">
+                        All <span id="jgCountAll">0</span>
+                    </button>
+                    <button class="jg-pill jg-pill-crit" data-filter="CRITICAL" onclick="jgSetFilter('CRITICAL',this)">
+                        <i class="fa fa-circle-xmark"></i> Critical <span id="jgCountCrit">0</span>
+                    </button>
+                    <button class="jg-pill jg-pill-warn" data-filter="WARNING"  onclick="jgSetFilter('WARNING',this)">
+                        <i class="fa fa-triangle-exclamation"></i> Warning <span id="jgCountWarn">0</span>
+                    </button>
+                </div>
+                <div class="jg-right">
+                    <span class="jg-row-count" id="jgRowCount">0 rows</span>
+                    <button class="jg-export-btn" onclick="jgExportCsv()" title="Export visible rows to CSV">
+                        <i class="fa fa-download"></i> CSV
+                    </button>
+                </div>
+            </div>
+
+            <!-- jsGrid table -->
+            <div class="jg-table-wrap">
+                <table class="jg-table" id="jgTable">
+                    <thead>
+                    <tr>
+                        <th class="jg-th jg-sortable" data-col="ruleId"    onclick="jgSort('ruleId')">
+                            Rule <i class="fa fa-sort jg-sort-icon"></i></th>
+                        <th class="jg-th jg-sortable" data-col="severity"  onclick="jgSort('severity')">
+                            Severity <i class="fa fa-sort jg-sort-icon"></i></th>
+                        <th class="jg-th jg-sortable" data-col="sheetName" onclick="jgSort('sheetName')">
+                            Sheet <i class="fa fa-sort jg-sort-icon"></i></th>
+                        <th class="jg-th jg-sortable" data-col="row"       onclick="jgSort('row')">
+                            Row <i class="fa fa-sort jg-sort-icon"></i></th>
+                        <th class="jg-th jg-sortable" data-col="fieldName" onclick="jgSort('fieldName')">
+                            Field <i class="fa fa-sort jg-sort-icon"></i></th>
+                        <th class="jg-th"             data-col="message">Message</th>
+                    </tr>
+                    </thead>
+                    <tbody id="jgBody"><!-- filled by JS --></tbody>
+                    <tfoot id="jgEmpty" style="display:none">
+                        <tr><td colspan="6" class="jg-empty">
+                            <i class="fa fa-circle-check" style="color:#538135"></i>
+                            No issues match the current filter
+                        </td></tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Issue data embedded as JSON — no AJAX, no API call -->
+    <!-- Issues JSON data island — Thymeleaf outputs the raw JSON string, JS reads it -->
+    <script type="application/json" id="issuesDataIsland"
+            th:inline="none" th:utext="${allIssuesJson}">[]</script>
+    <script>
+    const JG_ISSUES = JSON.parse(
+        document.getElementById('issuesDataIsland').textContent || '[]'
+    );
+    </script>
+
+    <!-- ── Phased validation stepper ──────────────────────────────────────── -->
+    <div class="phase-bar" id="phaseBar">
+        <div class="phase-steps">
+            <div class="phase-step" th:classappend="${pivotUnlocked} ? ' done' : ' active'">
+                <span class="phase-num"><i th:if="${pivotUnlocked}" class="fa fa-check"></i><span th:unless="${pivotUnlocked}">1</span></span>
+                <span>Timesheet validation</span>
+            </div>
+            <div class="phase-connector" th:classappend="${pivotUnlocked} ? ' done' : ''"></div>
+            <div class="phase-step" th:classappend="${pivotUnlocked} ? ' active' : ' locked'">
+                <span class="phase-num"><i th:if="${!pivotUnlocked}" class="fa fa-lock"></i><span th:if="${pivotUnlocked}">2</span></span>
+                <span>Pivot validation</span>
+            </div>
+        </div>
+
+        <div class="phase-action">
+            <span th:if="${!pivotUnlocked}">
+                <span th:if="${timesheetErrors > 0}" class="phase-hint">
+                    <i class="fa fa-triangle-exclamation"></i>
+                    Resolve <b th:text="${timesheetErrors}">N</b> Timesheet error(s), then re-validate.
+                </span>
+                <span th:if="${timesheetErrors == 0}" class="phase-hint ok">
+                    <i class="fa fa-circle-check"></i> Timesheet is clean.
+                </span>
+                <form th:action="@{/view/{id}/advance(id=${uploadSession.sessionId})}" method="post" style="display:inline">
+                    <button type="submit" class="btn btn-primary"
+                            th:disabled="${timesheetErrors > 0}">
+                        Proceed to Pivot <i class="fa fa-arrow-right"></i>
+                    </button>
+                </form>
+            </span>
+            <form th:if="${pivotUnlocked}" th:action="@{/view/{id}/reset-phase(id=${uploadSession.sessionId})}"
+                  method="post" style="display:inline">
+                <button type="submit" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back to Timesheet</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ── Sheet Tabs (grids are fetched per tab, not all up front) ───────── -->
+    <div class="sheet-tabs-wrapper">
+        <div class="sheet-tabs" id="sheetTabs">
+            <button th:each="meta, iStat : ${sheetMetas}"
+                    th:id="'tab-btn-' + ${iStat.index}"
+                    th:with="locked=${#strings.equalsIgnoreCase(meta.sheetName,'Pivot') and !pivotUnlocked}"
+                    th:class="${iStat.index == activeTab} ? 'sheet-tab active' : 'sheet-tab'"
+                    th:classappend="${locked} ? ' sheet-tab-locked' : ''"
+                    th:attr="data-index=${iStat.index}"
+                    th:onclick="${locked} ? 'lockedPivotClick()' : ('loadSheet(' + ${iStat.index} + ')')">
+                <span th:text="${meta.sheetName}">Sheet</span>
+                <i th:if="${locked}" class="fa fa-lock phase-tab-lock"></i>
+            </button>
+        </div>
+        <div class="sheet-info" id="sheetInfo"></div>
+    </div>
+
+    <!-- ── Sheet Content ──────────────────────────────────────────────────────
+         Only the active sheet's grid lives here at any time. Tabs fetch their
+         grid from /api/view/{sessionId}/sheet/{index} on first click and cache
+         it client-side, so the page no longer ships every sheet at once. ───── -->
+    <!-- Per-sheet row filter -->
+    <div class="grid-filter-bar" id="gridFilterBar">
+        <div class="grid-filter-wrap">
+            <i class="fa fa-magnifying-glass grid-filter-icon"></i>
+            <input type="text" id="gridFilter" class="grid-filter-input"
+                   placeholder="Filter rows in this sheet…"
+                   oninput="filterGrid(this.value)" autocomplete="off">
+            <button type="button" id="gridFilterClear" class="grid-filter-clear"
+                    onclick="clearGridFilter()" title="Clear filter" style="display:none">
+                <i class="fa fa-xmark"></i>
+            </button>
+        </div>
+        <span class="grid-filter-count" id="gridFilterCount"></span>
+    </div>
+
+    <div id="sheetHost" class="sheet-host">
+        <div class="sheet-loading" id="sheetLoading">
+            <div class="loader-spinner sheet-spinner"></div>
+            <span>Loading sheet…</span>
+        </div>
+        <div class="sheet-error" id="sheetError" style="display:none">
+            <i class="fa fa-triangle-exclamation"></i>
+            <span>Could not load this sheet. <a href="javascript:void(0)" onclick="reloadActiveSheet()">Retry</a></span>
+        </div>
+    </div>
+
+    <!-- Context for the lazy sheet loader (viewer-sheets.js) -->
+    <script th:inline="javascript">
+        window.VIEWER_CTX = {
+            sessionId:  /*[[${uploadSession.sessionId}]]*/ '',
+            activeTab:  /*[[${activeTab}]]*/ 0,
+            errorCount: /*[[${errorCount}]]*/ 0,
+            sheets:     /*[[${sheetMetas}]]*/ []
+        };
+    </script>
+
+    <!-- ── Legend ─────────────────────────────────────────────────────────── -->
+    <div class="legend card mt-3">
+        <div class="card-body legend-body">
+            <span class="legend-item">
+                <span class="legend-swatch employee-swatch"></span>
+                Employee affected by validation issue
+            </span>
+            <span class="legend-item"><span class="legend-swatch header-swatch"></span> Header row</span>
+            <span class="legend-item"><span class="legend-swatch formula-swatch"></span> Formula cell (hover for formula)</span>
+            <span class="legend-item"><span class="legend-swatch error-swatch"></span> Critical validation error</span>
+            <span class="legend-item"><span class="legend-swatch warning-swatch"></span> Warning</span>
+            <span class="legend-item ml-auto text-muted small">
+                <i class="fa fa-hand-pointer"></i> Hover any highlighted cell for details
+            </span>
+        </div>
+    </div>
+
+</main>
+
+
+
+<div th:replace="fragments/layout :: global-loader"></div>
+<footer th:replace="fragments/layout :: footer"></footer>
+
+<!-- Sheet metadata for JS -->
+<script>
+    const SHEET_DATA = [];
+    </script>
+<script th:src="@{/js/app.js}"></script>
+<script th:src="@{/js/viewer-grid.js}"></script>
+<script th:src="@{/js/viewer-sheets.js}"></script>
+<script>
+    function lockedPivotClick() {
+        var bar = document.getElementById('phaseBar');
+        if (!bar) return;
+        bar.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        bar.classList.remove('phase-pulse');
+        void bar.offsetWidth;            // restart the animation
+        bar.classList.add('phase-pulse');
+    }
+</script>
+
+<script>
+
+
+    function toggleAppliedValidations() {
+
+    const body =
+        document.getElementById(
+            "appliedValidationsBody"
+        );
+
+    const chevron =
+        document.getElementById(
+            "validationChevron"
+        );
+
+    const collapsed =
+        body.style.display === "none";
+
+    if (collapsed) {
+
+        body.style.display = "flex";
+
+        chevron.className =
+            "fa fa-chevron-down";
+
+    } else {
+
+        body.style.display = "none";
+
+        chevron.className =
+            "fa fa-chevron-right";
+    }
+}
+
+    function openRulesModal() {
+
+    const savedRules =
+        document.getElementById("savedRules")
+                .value
+                .split(",");
+
+    document
+        .querySelectorAll('#rulesForm input[name="rules"]:not([disabled])')
+        .forEach(cb => {
+            cb.checked = savedRules.includes(cb.value);
+        });
+
+    updateModalRuleCount();
+
+    document.getElementById("rulesModal").style.display =
+        "block";
+}
+
+    function closeRulesModal(){
+        document.getElementById("rulesModal").style.display = "none";
+    }
+
+    function updateModalRuleCount() {
+
+        const count =
+            document.querySelectorAll(
+                '#rulesForm input[name="rules"]:not([disabled]):checked'
+            ).length;
+
+        document.getElementById("modalRuleCount").innerText =
+            count + " Selected";
+
+        if (window.refreshRuleTabCounts)
+            refreshRuleTabCounts(document.getElementById("modalRuleTabset"));
+
+        const saveBtn =
+            document.getElementById("saveRulesBtn");
+
+        const errorBox =
+            document.getElementById("modalRuleError");
+
+        if (count === 0) {
+
+            saveBtn.disabled = true;
+
+            errorBox.style.display = "block";
+
+        } else {
+
+            saveBtn.disabled = false;
+
+            errorBox.style.display = "none";
+        }
+    }
+
+    function selectAllModalRules() {
+
+        document
+            .querySelectorAll('#rulesForm input[name="rules"]:not([disabled])')
+            .forEach(cb => cb.checked = true);
+
+        updateModalRuleCount();
+    }
+
+    function clearAllModalRules() {
+
+        document
+            .querySelectorAll('#rulesForm input[name="rules"]:not([disabled])')
+            .forEach(cb => cb.checked = false);
+
+        updateModalRuleCount();
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+
+        document
+            .querySelectorAll('#rulesForm input[name="rules"]')
+            .forEach(cb => {
+
+                cb.addEventListener(
+                    "change",
+                    updateModalRuleCount
+                );
+
+            });
+
+        updateModalRuleCount();
+    });
+
+<!--    loader JS-->
+    document
+    .getElementById("rulesForm")
+    .addEventListener("submit", function () {
+
+        closeRulesModal();
+
+        const btn =
+            document.getElementById("saveRulesBtn");
+
+        btn.disabled = true;
+
+        btn.innerHTML =
+            '<i class="fa fa-spinner fa-spin"></i> Re-validating...';
+
+<!--        document-->
+<!--            .getElementById("revalidateLoader")-->
+<!--            .style.display = "flex";-->
+
+        showLoader(
+    "Updating Validation Rules",
+    ""
+);
+    });
+
+    document
+    .getElementById("revalidateForm")
+    .addEventListener("submit", function() {
+
+        showLoader(
+            "Re-Validating Workbook",
+            "Running validation rules..."
+        );
+    });
+
+    document
+    .getElementById("revalidateForm")
+    .addEventListener("submit", function() {
+
+        showLoader(
+            "",
+            "Running validation rules..."
+        );
+    });
+
+</script>
+</body>
+</html>

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head th:replace="fragments/layout :: head('Admin — User Form')"></head>
+<body>
+<nav th:replace="fragments/layout :: navbar"></nav>
+<main class="main-content" style="max-width:700px">
+    <div class="page-header">
+        <div>
+            <h1 th:text="${editMode} ? '✏ Edit User' : '➕ Add User'"></h1>
+        </div>
+        <a th:href="@{/admin/users}" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back</a>
+    </div>
+    <div class="card">
+        <div class="card-body">
+            <form th:action="@{/admin/users/save}" method="post">
+                <input type="hidden" name="id" th:value="${user.id}"/>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="required">Username</label>
+                        <input type="text" name="username" class="form-input"
+                               th:value="${user.username}" placeholder="jsmith" required/>
+                    </div>
+                    <div class="form-group">
+                        <label th:text="${editMode} ? 'New Password (leave blank to keep)' : 'Password *'">Password</label>
+                        <input type="password" name="password" class="form-input"
+                               th:required="${!editMode}" placeholder="Min 8 characters"
+                               autocomplete="new-password"/>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Full Name</label>
+                        <input type="text" name="fullName" class="form-input"
+                               th:value="${user.fullName}" placeholder="John Smith"/>
+                    </div>
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" name="email" class="form-input"
+                               th:value="${user.email}" placeholder="john@company.com"/>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Linked Resource</label>
+                        <select name="resourceId" class="form-input">
+                            <option value="">— None —</option>
+                            <option th:each="r : ${resources}"
+                                    th:value="${r.resourceId}"
+                                    th:text="${r.name + ' (' + r.resourceId + ')'}"
+                                    th:selected="${r.resourceId == user.resourceId}"></option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <div class="checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="enabled" value="true"
+                                       th:checked="${user.enabled == null or user.enabled}"/>
+                                Account Enabled
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Roles <span class="text-muted small">(select one or more)</span></label>
+                    <div class="role-checkboxes">
+                        <label class="checkbox-label" th:each="role : ${allRoles}">
+                            <input type="checkbox" name="roleIds" th:value="${role.id}"
+                                   th:checked="${user.roles != null and user.roles.contains(role)}"/>
+                            <span th:class="${role.name == 'ADMIN'} ? 'badge badge-red' :
+                                            (${role.name == 'MANAGER'} ? 'badge badge-blue' : 'badge badge-gray')"
+                                  th:text="${role.name}"></span>
+                            <span class="text-muted small" th:text="${role.description}"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-success"><i class="fa fa-save"></i> Save User</button>
+                    <a th:href="@{/admin/users}" class="btn btn-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</main>
+<footer th:replace="fragments/layout :: footer"></footer>
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head th:replace="fragments/layout :: head('Admin — Users')"></head>
+<body>
+<nav th:replace="fragments/layout :: navbar"></nav>
+<main class="main-content">
+    <div class="page-header">
+        <div>
+            <h1><i class="fa fa-user-shield"></i> User Management</h1>
+            <p class="subtitle" th:text="${#lists.size(users)} + ' users registered'"></p>
+        </div>
+        <div class="page-actions">
+            <a th:href="@{/admin}" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Admin</a>
+            <a th:href="@{/admin/users/new}" class="btn btn-success"><i class="fa fa-plus"></i> Add User</a>
+        </div>
+    </div>
+    <div th:if="${success}" class="alert alert-success"><i class="fa fa-circle-check"></i> <span th:text="${success}"></span></div>
+
+    <div class="card">
+        <div class="card-body p-0">
+            <table class="data-table">
+                <thead>
+                <tr><th>Username</th><th>Full Name</th><th>Email</th><th>Roles</th>
+                    <th>Resource</th><th>Status</th><th>Actions</th></tr>
+                </thead>
+                <tbody>
+                <tr th:each="u : ${users}">
+                    <td><strong th:text="${u.username}"></strong></td>
+                    <td th:text="${u.fullName}">—</td>
+                    <td th:text="${u.email}">—</td>
+                    <td>
+                        <span th:each="role : ${u.roles}"
+                              th:class="${role.name == 'ADMIN'} ? 'badge badge-red' : (${role.name == 'MANAGER'} ? 'badge badge-blue' : 'badge badge-gray')"
+                              th:text="${role.name}"></span>
+                    </td>
+                    <td th:text="${u.resourceId}">—</td>
+                    <td>
+                        <span th:class="${u.enabled} ? 'badge badge-green' : 'badge badge-red'"
+                              th:text="${u.enabled} ? 'Active' : 'Disabled'"></span>
+                    </td>
+                    <td class="action-cell">
+                        <a th:href="@{/admin/users/edit/{id}(id=${u.id})}" class="btn btn-sm btn-primary">
+                            <i class="fa fa-pen"></i>
+                        </a>
+                        <form th:action="@{/admin/users/toggle/{id}(id=${u.id})}" method="post" style="display:inline">
+                            <button type="submit" class="btn btn-sm btn-secondary"
+                                    th:title="${u.enabled} ? 'Disable user' : 'Enable user'">
+                                <i th:class="${u.enabled} ? 'fa fa-ban' : 'fa fa-circle-check'"></i>
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>
+<footer th:replace="fragments/layout :: footer"></footer>
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

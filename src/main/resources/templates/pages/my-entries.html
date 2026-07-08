@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head th:replace="fragments/layout :: head('My Timesheet')"></head>
+<body>
+<nav th:replace="fragments/layout :: navbar"></nav>
+<main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1><i class="fa fa-chart-gantt"></i> My Timesheet</h1>
+      <p class="subtitle">
+        <strong th:text="${resourceName}">Resource</strong> &bull;
+        <span th:text="${#lists.size(entries)}">0</span> entries
+      </p>
+    </div>
+    <div class="page-actions">
+      <a th:href="@{/timesheet}" class="btn btn-primary">
+        <i class="fa fa-plus"></i> Log Entry
+      </a>
+    </div>
+  </div>
+
+  <!-- Daily summary cards -->
+  <div th:if="${!dailySummary.isEmpty()}" class="my-day-grid">
+    <div th:each="e : ${dailySummary}" class="my-day-card">
+      <div class="my-day-card-header">
+        <span class="my-day-card-date" th:text="${e.key}"></span>
+        <span class="my-day-hours"
+              th:classappend="${e.value >= maxHours} ? ' my-day-full' : ''"
+              th:text="${e.value} + ' hrs'">0 hrs</span>
+      </div>
+      <div class="my-day-bar-bg">
+        <div class="my-day-bar-fill"
+             th:style="${'width:' + (e.value * 100 / maxHours) + '%'}"></div>
+      </div>
+      <a th:href="@{/timesheet/day(date=${e.key})}" class="my-day-link">
+        View tasks <i class="fa fa-arrow-right"></i>
+      </a>
+    </div>
+  </div>
+
+  <!-- Full entry table -->
+  <div class="card mt-4">
+    <div class="card-header">
+      <i class="fa fa-list-check"></i> All Entries
+    </div>
+    <div class="card-body p-0">
+      <div th:if="${#lists.isEmpty(entries)}" class="empty-state">
+        <i class="fa fa-inbox fa-3x"></i>
+        <p>No entries yet. <a th:href="@{/timesheet}">Log your first task</a>.</p>
+      </div>
+      <table th:if="${!#lists.isEmpty(entries)}" class="data-table">
+        <thead>
+        <tr><th>Date</th><th>Project</th><th>Sub-Project</th><th>Code</th>
+            <th>Team</th><th>Hrs</th><th>Task</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+        <tr th:each="e : ${entries}"
+            th:class="${e.status == 'WEEKEND-OVERRIDE'} ? 'row-warning' : ''">
+          <td th:text="${e.entryDate}">—</td>
+          <td th:text="${e.project}">—</td>
+          <td th:text="${e.subProject}">—</td>
+          <td><code th:text="${e.projectCode}">—</code></td>
+          <td th:text="${e.assignedTeam}">—</td>
+          <td><strong th:text="${e.hours}">0</strong></td>
+          <td class="text-muted"
+              th:text="${e.task != null ? #strings.abbreviate(e.task,55) : '—'}">—</td>
+          <td>
+            <span th:class="${e.status == 'WEEKEND-OVERRIDE'} ? 'badge badge-orange' : 'badge badge-green'"
+                  th:text="${e.status}">—</span>
+          </td>
+          <td>
+            <form th:action="@{/timesheet/delete/{id}(id=${e.id})}" method="post" style="display:inline"
+                  onsubmit="return confirm('Remove this entry?')">
+              <input type="hidden" name="date" th:value="${e.entryDate}"/>
+              <button type="submit" class="btn btn-sm btn-danger" title="Remove">
+                <i class="fa fa-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+<footer th:replace="fragments/layout :: footer"></footer>
+
+<style>
+.my-day-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr));
+  gap: 12px; margin-bottom: 4px;
+}
+.my-day-card {
+  background: #fff; border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px;
+  box-shadow: var(--shadow); transition: all .2s;
+}
+.my-day-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.1); }
+.my-day-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.my-day-card-date { font-size: .8rem; color: var(--dgray); }
+.my-day-hours { font-size: .9rem; font-weight: 700; color: var(--navy); }
+.my-day-full  { color: #538135 !important; }
+.my-day-bar-bg { height: 6px; background: var(--border); border-radius: 4px; overflow: hidden; margin-bottom: 10px; }
+.my-day-bar-fill { height: 100%; background: linear-gradient(90deg,var(--blue),#538135); border-radius: 4px; max-width:100%; }
+.my-day-link { font-size: .78rem; color: var(--blue); text-decoration: none; display: flex; align-items: center; gap: 5px; }
+.my-day-link:hover { text-decoration: underline; }
+</style>
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

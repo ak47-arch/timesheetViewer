@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!-- ── Configurable validation rules ─────────────────────────────────── -->
+    <changeSet id="004-rule-config" author="xyzsoft">
+        <createTable tableName="RULE_CONFIG">
+            <column name="ID"          type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="RULE_ID"     type="VARCHAR(20)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="SHEET_NAME"  type="VARCHAR(100)"/>
+            <column name="DESCRIPTION" type="VARCHAR(300)"/>
+            <column name="SEVERITY"    type="VARCHAR(20)"/>
+            <column name="ENABLED"     type="BOOLEAN" defaultValueBoolean="true"/>
+            <column name="ALWAYS_ON"   type="BOOLEAN" defaultValueBoolean="false"/>
+            <column name="SORT_ORDER"  type="INT" defaultValueNumeric="0"/>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head th:replace="fragments/layout :: head('Admin — Rule Form')"></head>
+<body>
+<nav th:replace="fragments/layout :: navbar"></nav>
+<main class="main-content" style="max-width:640px">
+    <div class="page-header">
+        <div>
+            <h1 th:text="${editMode} ? '✏ Edit Rule' : '➕ Add Rule'"></h1>
+            <p class="subtitle">Rules are stored in the database and applied immediately on save.</p>
+        </div>
+        <a th:href="@{/admin/rules}" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back</a>
+    </div>
+
+    <div th:if="${error}" class="alert alert-danger">
+        <i class="fa fa-triangle-exclamation"></i> <span th:text="${error}"></span>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <form th:action="@{/admin/rules/save}" method="post">
+                <input type="hidden" name="id" th:value="${rule.id}"/>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="required">Rule ID</label>
+                        <input type="text" name="ruleId" class="form-input"
+                               th:value="${rule.ruleId}" placeholder="e.g. TS-09 or PS-07"
+                               th:readonly="${editMode}" required/>
+                        <small class="text-muted" th:if="${editMode}">Rule ID can't be changed after creation.</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="required">Sheet</label>
+                        <input type="text" name="sheetName" class="form-input" list="sheetOptions"
+                               th:value="${rule.sheetName}" placeholder="e.g. Timesheet" required/>
+                        <datalist id="sheetOptions">
+                            <option value="Timesheet"></option>
+                            <option value="Pivot"></option>
+                            <option value="Summary"></option>
+                            <option value="Commercial"></option>
+                            <option value="Project Wise"></option>
+                        </datalist>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="required">Description</label>
+                    <input type="text" name="description" class="form-input"
+                           th:value="${rule.description}" placeholder="What the rule checks" required/>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Severity</label>
+                        <select name="severity" class="form-input">
+                            <option value="CRITICAL" th:selected="${rule.severity == 'CRITICAL' or rule.severity == null}">CRITICAL</option>
+                            <option value="WARNING"  th:selected="${rule.severity == 'WARNING'}">WARNING</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Sort Order</label>
+                        <input type="number" name="sortOrder" class="form-input"
+                               th:value="${rule.sortOrder}" min="0" step="1"/>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Type</label>
+                        <label class="check-inline">
+                            <input type="checkbox" name="alwaysOn" value="true" th:checked="${rule.alwaysOn}">
+                            Always-on (runs automatically, not user-selectable per upload)
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <label class="check-inline">
+                            <input type="checkbox" name="enabled" value="true"
+                                   th:checked="${rule.enabled == null ? true : rule.enabled}">
+                            Enabled
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Violation Message</label>
+                    <input type="text" name="messageTemplate" class="form-input"
+                           th:value="${rule.messageTemplate}"
+                           placeholder="Leave blank for the default message"/>
+                    <small class="text-muted">
+                        Shown when this rule is violated. Leave blank to use the built-in message.
+                        Placeholders:
+                        <code>{detail}</code> (built-in message text),
+                        <code>{ruleId}</code>, <code>{severity}</code>, <code>{field}</code>.
+                        Example: <code>[{ruleId}] {detail}</code>
+                    </small>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-success"><i class="fa fa-save"></i> Save Rule</button>
+                    <a th:href="@{/admin/rules}" class="btn btn-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</main>
+<footer th:replace="fragments/layout :: footer"></footer>
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

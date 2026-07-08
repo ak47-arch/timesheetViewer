@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head th:replace="fragments/layout :: head('Admin — Validation Rules')"></head>
+<body>
+<nav th:replace="fragments/layout :: navbar"></nav>
+<main class="main-content">
+    <div class="page-header">
+        <div>
+            <h1><i class="fa fa-sliders"></i> Validation Rules</h1>
+            <p class="subtitle">
+                Enable or disable rules. Changes save to the database and apply
+                immediately — no restart needed.
+            </p>
+        </div>
+        <div class="page-actions">
+            <a th:href="@{/admin}" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Admin</a>
+            <a th:href="@{/admin/rules/new}" class="btn btn-success"><i class="fa fa-plus"></i> Add Rule</a>
+        </div>
+    </div>
+
+    <div th:if="${success}" class="alert alert-success">
+        <i class="fa fa-circle-check"></i> <span th:text="${success}"></span>
+    </div>
+    <div th:if="${error}" class="alert alert-danger">
+        <i class="fa fa-triangle-exclamation"></i> <span th:text="${error}"></span>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+
+            <div class="rule-tabbar" id="adminRuleTabs">
+                <button th:each="g, i : ${ruleGroups}" type="button"
+                        class="rule-tab"
+                        th:classappend="${i.index == 0} ? ' active' : ''"
+                        th:onclick="'showRuleTab(' + ${i.index} + ')'">
+                    <i class="fa fa-table-list"></i>
+                    <span th:text="${g.key}">Sheet</span>
+                    <span class="rt-count" th:text="${#lists.size(g.value)}">0</span>
+                </button>
+            </div>
+
+            <div th:each="g, gi : ${ruleGroups}" class="rule-admin-panel"
+                 th:classappend="${gi.index != 0} ? ' rt-hidden' : ''">
+                <table class="data-table">
+                    <thead>
+                    <tr>
+                        <th>Rule</th><th>Description</th><th>Severity</th>
+                        <th>Message</th><th>Type</th><th>Status</th><th>Action</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="r : ${g.value}" th:classappend="${!r.enabled} ? ' row-disabled' : ''">
+                        <td><span class="rule-badge" th:text="${r.ruleId}">TS-01</span></td>
+                        <td th:text="${r.description}">—</td>
+                        <td>
+                            <span th:classappend="${r.severity == 'CRITICAL'} ? ' sev-critical' : ' sev-warning'"
+                                  class="sev-tag" th:text="${r.severity}">CRITICAL</span>
+                        </td>
+                        <td>
+                            <span th:if="${r.messageTemplate != null and !r.messageTemplate.isBlank()}"
+                                  class="badge badge-blue" th:title="${r.messageTemplate}">Custom</span>
+                            <span th:unless="${r.messageTemplate != null and !r.messageTemplate.isBlank()}"
+                                  class="text-muted">Default</span>
+                        </td>
+                        <td>
+                            <span th:if="${r.alwaysOn}" class="badge badge-purple">Always-on</span>
+                            <span th:unless="${r.alwaysOn}" class="badge badge-blue">Selectable</span>
+                        </td>
+                        <td>
+                            <span th:if="${r.enabled}" class="badge badge-green">
+                                <i class="fa fa-circle-check"></i> Enabled
+                            </span>
+                            <span th:unless="${r.enabled}" class="badge badge-gray">
+                                <i class="fa fa-ban"></i> Disabled
+                            </span>
+                        </td>
+                        <td class="action-cell">
+                            <form th:action="@{/admin/rules/toggle/{rid}(rid=${r.ruleId})}" method="post"
+                                  style="display:inline">
+                                <input type="hidden" name="enabled" th:value="${!r.enabled}">
+                                <button type="submit"
+                                        th:class="${r.enabled} ? 'btn btn-sm btn-secondary' : 'btn btn-sm btn-success'">
+                                    <i th:class="${r.enabled} ? 'fa fa-toggle-off' : 'fa fa-toggle-on'"></i>
+                                    <span th:text="${r.enabled} ? 'Disable' : 'Enable'">Disable</span>
+                                </button>
+                            </form>
+                            <a th:href="@{/admin/rules/edit/{id}(id=${r.id})}" class="btn btn-sm btn-primary">
+                                <i class="fa fa-pen"></i> Edit
+                            </a>
+                            <form th:action="@{/admin/rules/delete/{id}(id=${r.id})}" method="post"
+                                  style="display:inline"
+                                  th:attr="data-name=${r.ruleId}" onsubmit="return confirm('Delete rule ' + this.dataset.name + '?')">
+                                <button type="submit" class="btn btn-sm btn-danger"><i class="fa fa-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div th:if="${#maps.isEmpty(ruleGroups)}" class="empty-state small">
+                <p>No rules configured. Seed them via <code>app.rules</code> in <code>application.yml</code>.</p>
+            </div>
+        </div>
+    </div>
+</main>
+<footer th:replace="fragments/layout :: footer"></footer>
+<script th:src="@{/js/app.js}"></script>
+<script>
+    function showRuleTab(idx) {
+        document.querySelectorAll('#adminRuleTabs .rule-tab')
+            .forEach(function (b, i) { b.classList.toggle('active', i === idx); });
+        document.querySelectorAll('.rule-admin-panel')
+            .forEach(function (p, i) { p.classList.toggle('rt-hidden', i !== idx); });
+    }
+</script>
+</body>
+</html>
