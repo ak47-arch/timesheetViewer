@@ -5,4 +5,8 @@
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
 
     <include file="classpath:db/changelog/changes/001-schema.xml"/>
+    <include file="classpath:db/changelog/changes/004-rule-config.xml"/>
+    <include file="classpath:db/changelog/changes/005-holiday-enabled.xml"/>
+    <include file="classpath:db/changelog/changes/006-rule-message-template.xml"/>
+    <include file="classpath:db/changelog/changes/007-validation-phase.xml"/>
 </databaseChangeLog>

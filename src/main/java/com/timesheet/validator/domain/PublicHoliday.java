@@ -7,4 +7,10 @@ public class PublicHoliday {
     @Column(name="HOLIDAY_NAME") private String holidayName;
     @Column(name="COUNTRY_CODE") private String countryCode;
     @Column(name="NOTES") private String notes;
+    @Column(name="ENABLED") private Boolean enabled;
+
+    /** Null-safe: a holiday with no explicit flag is treated as enabled. */
+    public boolean isActive() { return enabled == null || enabled; }
+
+    @PrePersist public void pre() { if (enabled == null) enabled = Boolean.TRUE; }
 }

@@ -1,5 +1,7 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security" lang="en">
+
 <head th:fragment="head(title)">
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -14,18 +16,78 @@
     <a th:href="@{/}" class="navbar-brand">
         <i class="fa-solid fa-table-cells"></i>
         <span>Timesheet Validator</span>
-        <small>Timesheet Validator</small>
     </a>
     <ul class="navbar-links">
-        <li><a th:href="@{/}" class="nav-link"><i class="fa fa-house"></i> Home</a></li>
-        <li><a href="/h2-console" target="_blank" class="nav-link"><i class="fa fa-database"></i> H2 DB</a></li>
+        <!-- Home: MANAGER + ADMIN -->
+        <li sec:authorize="hasAnyRole('MANAGER','ADMIN')">
+            <a th:href="@{/}" class="nav-link"><i class="fa fa-house"></i> Home</a>
+        </li>
+        <!-- Timesheet form: all roles -->
+        <li sec:authorize="isAuthenticated()">
+            <a th:href="@{/timesheet}" class="nav-link"><i class="fa fa-clock"></i> Log Time</a>
+        </li>
+        <!-- My entries -->
+        <li sec:authorize="isAuthenticated()">
+            <a th:href="@{/timesheet/my-entries}" class="nav-link"><i class="fa fa-list"></i> My Entries</a>
+        </li>
+        <!-- All entries: MANAGER + ADMIN -->
+        <li sec:authorize="hasAnyRole('MANAGER','ADMIN')">
+            <a th:href="@{/timesheet/all-entries}" class="nav-link"><i class="fa fa-users"></i> All Entries</a>
+        </li>
+        <!-- Admin master data: ADMIN only -->
+        <li sec:authorize="hasRole('ADMIN')">
+            <a th:href="@{/admin}" class="nav-link">
+                <i class="fa fa-shield-halved"></i> Admin
+            </a>
+        </li>
+        <!-- H2 DB: ADMIN only -->
+        <li sec:authorize="hasRole('ADMIN')">
+            <a href="/h2-console" target="_blank" class="nav-link">
+                <i class="fa fa-database"></i> H2 DB
+            </a>
+        </li>
+        <!-- User info + logout -->
+        <li sec:authorize="isAuthenticated()" class="nav-user">
+            <i class="fa fa-circle-user"></i>
+            <span sec:authentication="name">User</span>
+            <a th:href="@{/logout}" class="btn btn-sm btn-logout" title="Sign out">
+                <i class="fa fa-right-from-bracket"></i>
+            </a>
+        </li>
     </ul>
 </nav>
 
+
+<th:block th:fragment="global-loader">
+
+    <div id="globalLoader"
+         class="loader-overlay"
+         style="display:none;">
+
+        <div class="loader-card">
+
+            <div class="loader-spinner"></div>
+
+            <h3 id="loaderTitle">
+                Processing...
+            </h3>
+
+            <p id="loaderMessage">
+                Please wait...
+            </p>
+
+        </div>
+
+    </div>
+
+</th:block>
+
+
+
 <footer th:fragment="footer" class="footer">
-    <span>Timesheet Viewer & Validator &copy; 2026</span>
-<!--
-    <span>Spring Boot 2.7 · Java 17 · Apache POI · H2</span>
--->
+    <span>Timesheet Viewer &amp; Validator &copy; 2026</span>
+    <span sec:authorize="isAuthenticated()">
+        Signed in as: <strong sec:authentication="name">User</strong>
+        &bull; <a th:href="@{/logout}" style="color:rgba(255,255,255,.6)">Logout</a>
+    </span>
 </footer>
-</html>

@@ -39,36 +39,238 @@
                     <input type="file" id="fileInput" accept=".xlsx" style="display:none"/>
                     <p id="fileName" class="mt-2 selected-file"></p>
                 </div>
-                <form id="uploadForm" th:action="@{/upload}" method="post"
-                      enctype="multipart/form-data" class="mt-3">
-                    <input type="file" name="file" id="hiddenFile" accept=".xlsx" style="display:none"/>
-                    <button type="submit" id="uploadBtn" class="btn btn-success btn-block" disabled>
-                        <i class="fa fa-rocket"></i> Upload &amp; Validate
+                <form id="uploadForm"
+                      th:action="@{/upload}"
+                      method="post"
+                      enctype="multipart/form-data"
+                      class="mt-3">
+
+                    <input type="file"
+                           name="file"
+                           id="hiddenFile"
+                           accept=".xlsx"
+                           style="display:none"/>
+
+
+                    <div class="validation-card mt-3 mb-3">
+
+                        <div class="validation-header">
+
+                            <div>
+                                <h3>
+                                    <i class="fa fa-sliders"></i>
+                                    Validation Rules
+                                    <span class="rule-count-badge">
+                                        <span id="selectedRuleCount">8</span> Selected
+                                    </span>
+                                </h3>
+
+                                <div class="validation-subtitle">
+                                    Only selected rules will be applied during validation.
+                                </div>
+                            </div>
+
+<!--                            <div class="validation-actions">-->
+
+<!--                                <button type="button"-->
+<!--                                        class="btn btn-sm btn-primary"-->
+<!--                                        onclick="selectAllRules()">-->
+<!--                                    Select All-->
+<!--                                </button>-->
+
+<!--                                <button type="button"-->
+<!--                                        class="btn btn-sm btn-secondary"-->
+<!--                                        onclick="clearAllRules()">-->
+<!--                                    Clear All-->
+<!--                                </button>-->
+
+<!--                            </div>-->
+
+                            <div class="rule-actions">
+                                <a href="javascript:void(0)"
+                                   onclick="selectAllRules()"
+                                   class="rule-action-link">
+                                    <i class="fa fa-square-check"></i> Select All
+                                </a>
+
+                                <span class="rule-divider">|</span>
+
+                                <a href="javascript:void(0)"
+                                   onclick="clearAllRules()"
+                                   class="rule-action-link">
+                                    <i class="fa fa-xmark"></i> Clear All
+                                </a>
+                            </div>
+
+                        </div>
+
+                        <div class="validation-list rule-tabset" id="ruleGroups">
+
+                            <div class="rule-group"
+                                 th:each="grp : ${ruleGroups}"
+                                 th:classappend="${grp.alwaysOn} ? ' rule-group-locked' : ''"
+                                 th:attr="data-sheet=${grp.sheetName},data-locked=${grp.alwaysOn}">
+
+                                <div class="rule-group-head">
+                                    <div class="rule-group-title">
+                                        <i class="fa fa-table-list"></i>
+                                        <span th:text="${grp.sheetName}">Sheet</span>
+                                        <span class="rule-group-meta"
+                                              th:text="${#lists.size(grp.rules)} + ' rules'">rules</span>
+                                    </div>
+
+                                    <!-- Toggleable groups get a master switch + live count -->
+                                    <label th:if="${!grp.alwaysOn}" class="rule-group-toggle">
+                                        <input type="checkbox"
+                                               class="rule-group-master"
+                                               checked
+                                               onchange="toggleGroup(this)">
+                                        <span class="rule-group-count">
+                                            <span class="grp-selected">0</span>/<span
+                                                th:text="${#lists.size(grp.rules)}">0</span>
+                                        </span>
+                                    </label>
+
+                                    <!-- Always-on groups show a static badge -->
+                                    <span th:if="${grp.alwaysOn}" class="always-on-pill"
+                                          title="These checks run automatically whenever this sheet is present">
+                                        <i class="fa fa-lock"></i> Always applied
+                                    </span>
+                                </div>
+
+                                <div class="rule-group-body">
+                                    <label class="rule-row"
+                                           th:each="r : ${grp.rules}"
+                                           th:classappend="${grp.alwaysOn} ? ' rule-row-locked' : ''">
+
+                                        <input type="checkbox"
+                                               name="rules"
+                                               th:value="${r.id}"
+                                               th:if="${!grp.alwaysOn}"
+                                               checked>
+
+                                        <span class="rule-badge" th:text="${r.id}">TS-01</span>
+                                        <span class="rule-text" th:text="${r.description}">rule</span>
+
+                                        <span th:classappend="${r.severity == 'CRITICAL'} ? ' sev-critical' : ' sev-warning'"
+                                              class="sev-tag"
+                                              th:text="${r.severity}">CRITICAL</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                        </div>
+
+                    </div>
+
+<!--                    <div class="info-box mt-3">-->
+
+<!--                        <div style="display:flex;justify-content:space-between;align-items:center;">-->
+<!--                            <strong>Validation Rules</strong>-->
+
+<!--                            <div>-->
+<!--                                <button type="button"-->
+<!--                                        class="btn btn-sm btn-secondary"-->
+<!--                                        onclick="selectAllRules()">-->
+<!--                                    Select All-->
+<!--                                </button>-->
+
+<!--                                <button type="button"-->
+<!--                                        class="btn btn-sm btn-secondary"-->
+<!--                                        onclick="clearAllRules()">-->
+<!--                                    Clear All-->
+<!--                                </button>-->
+<!--                            </div>-->
+<!--                        </div>-->
+
+<!--                        <div class="mt-2">-->
+
+<!--                            <label>-->
+<!--                                <input type="checkbox" name="rules" value="TS-01" checked>-->
+<!--                                TS-01 Max 8 hrs/day per resource-->
+<!--                            </label><br>-->
+
+<!--                            <label>-->
+<!--                                <input type="checkbox" name="rules" value="TS-02" checked>-->
+<!--                                TS-02 No weekend entries-->
+<!--                            </label><br>-->
+
+<!--                            <label>-->
+<!--                                <input type="checkbox" name="rules" value="TS-03" checked>-->
+<!--                                TS-03 No public holiday entries-->
+<!--                            </label><br>-->
+
+<!--                            <label>-->
+<!--                                <input type="checkbox" name="rules" value="TS-04" checked>-->
+<!--                                TS-04 Hours must be positive-->
+<!--                            </label><br>-->
+
+<!--                            <label>-->
+<!--                                <input type="checkbox" name="rules" value="TS-05" checked>-->
+<!--                                TS-05 Resource must be in roster-->
+<!--                            </label><br>-->
+
+<!--                            <label>-->
+<!--                                <input type="checkbox" name="rules" value="TS-06" checked>-->
+<!--                                TS-06 SOW must match expected-->
+<!--                            </label><br>-->
+
+<!--                            <label>-->
+<!--                                <input type="checkbox" name="rules" value="TS-07" checked>-->
+<!--                                TS-07 Date within engagement period-->
+<!--                            </label><br>-->
+
+<!--                            <label>-->
+<!--                                <input type="checkbox" name="rules" value="TS-08" checked>-->
+<!--                                TS-08 All fields are mandatory-->
+<!--                            </label>-->
+
+<!--                        </div>-->
+<!--                    </div>-->
+
+                    <div id="ruleValidationError"
+                         class="alert alert-danger"
+                         style="display:none; margin-top:10px;">
+                        <i class="fa fa-circle-xmark"></i>
+                        Please select at least one validation rule.
+                    </div>
+
+<!--                    <button type="submit"-->
+<!--                            id="uploadBtn"-->
+<!--                            class="btn btn-success btn-block"-->
+<!--                            disabled>-->
+<!--                        <i class="fa fa-rocket"></i>-->
+<!--                        Upload & Validate-->
+<!--                    </button>-->
+
+<!--                    <div class="drop-zone" id="dropZone">-->
+<!--                        <i class="fa fa-file-excel fa-3x text-green"></i>-->
+<!--                        <p class="mt-2">Drag &amp; drop your <strong>.xlsx</strong> here</p>-->
+<!--                        <p class="text-muted small">or click to browse</p>-->
+<!--                        <input type="file" id="fileInput" accept=".xlsx" style="display:none"/>-->
+<!--                        <p id="fileName" class="mt-2 selected-file"></p>-->
+<!--                    </div>-->
+
+
+                    <button type="submit"
+                            id="uploadBtn"
+                            class="btn-upload"
+                            disabled>
+                        <i class="fa fa-shield-halved"></i>
+                        Upload & Validate
                     </button>
+
+
                 </form>
 
-                <div class="info-box mt-3">
-                    <i class="fa fa-circle-info"></i>
-                    <div>
-                        <strong>Validation Rules Applied (Timesheet sheet):</strong>
-                        <ul class="rule-list mt-1">
-                            <li><span class="badge badge-red">TS-01</span> Max 8 hrs/day per resource</li>
-                            <li><span class="badge badge-red">TS-02</span> No weekend entries</li>
-                            <li><span class="badge badge-red">TS-03</span> No public holiday entries</li>
-                            <li><span class="badge badge-red">TS-04</span> Hours must be positive</li>
-                            <li><span class="badge badge-orange">TS-05</span> Resource must be in roster</li>
-                            <li><span class="badge badge-red">TS-06</span> SOW must match expected</li>
-                            <li><span class="badge badge-orange">TS-07</span> Date within engagement period</li>
-                        </ul>
-                    </div>
-                </div>
+
             </div>
         </div>
 
         <!-- ── Master Data Summary ──────────────────────────────────────── -->
         <div>
             <div class="card mb-3">
-                <div class="card-header"><i class="fa fa-calendar-xmark"></i> Public Holidays Configured</div>
+                <div class="card-header"><i class="fa fa-calendar-xmark"></i> Company Holidays Configured</div>
                 <div class="card-body p-0">
                     <table class="data-table">
                         <thead><tr><th>Date</th><th>Holiday</th><th>Country</th></tr></thead>
@@ -85,17 +287,17 @@
                     </div>
                 </div>
             </div>
-            <div class="card">
-                <div class="card-header">
-                    <i class="fa fa-users"></i> Roster
-                    <span class="badge badge-blue ml-2" th:text="${resourceCount} + ' resources'"></span>
-                </div>
-                <div class="card-body">
-                    <p class="text-muted small">
-                        <i class="fa fa-circle-info"></i>
-                        Edit <code>app.master.resources</code> in <code>application.yml</code> and restart to update.
-                    </p>
-                </div>
+<!--            <div class="card">-->
+<!--                <div class="card-header">-->
+<!--                    <i class="fa fa-users"></i> Roster-->
+<!--                    <span class="badge badge-blue ml-2" th:text="${resourceCount} + ' resources'"></span>-->
+<!--                </div>-->
+<!--                <div class="card-body">-->
+<!--                    <p class="text-muted small">-->
+<!--                        <i class="fa fa-circle-info"></i>-->
+<!--                        Edit <code>app.master.resources</code> in <code>application.yml</code> and restart to update.-->
+<!--                    </p>-->
+<!--                </div>-->
             </div>
         </div>
     </div>
@@ -134,7 +336,219 @@
     </div>
 </main>
 
+<!-- Upload Loader -->
+
+<!--<div id="uploadLoader" class="loader-overlay">-->
+
+<!--    <div class="loader-card">-->
+
+<!--        <div class="loader-spinner"></div>-->
+
+<!--        <h3>Uploading Workbook</h3>-->
+
+<!--        <p>-->
+<!--            Validating selected rules...-->
+<!--        </p>-->
+
+<!--    </div>-->
+
+<!--</div>-->
+
+<div th:replace="fragments/layout :: global-loader"></div>
 <footer th:replace="fragments/layout :: footer"></footer>
+
 <script th:src="@{/js/app.js}"></script>
+
+<script>
+
+    // Count only enabled (toggleable) rules — disabled "always applied"
+    // checkboxes are never submitted and never counted.
+    function enabledRuleBoxes() {
+        return Array.from(
+            document.querySelectorAll('input[name="rules"]')
+        ).filter(cb => !cb.disabled);
+    }
+
+    function updateUploadButtonState() {
+
+    const checkedRules =
+        enabledRuleBoxes().filter(cb => cb.checked).length;
+
+    const fileSelected =
+        document.getElementById("hiddenFile").files.length > 0;
+
+    const uploadBtn =
+        document.getElementById("uploadBtn");
+
+    const errorBox =
+        document.getElementById("ruleValidationError");
+
+    if (checkedRules === 0) {
+
+        errorBox.style.display = "block";
+
+    } else {
+
+        errorBox.style.display = "none";
+    }
+
+    uploadBtn.disabled =
+        (checkedRules === 0 || !fileSelected);
+}
+
+// Refresh each group's "selected/total" count and its master switch.
+function updateGroupStates() {
+    document.querySelectorAll('#ruleGroups .rule-group').forEach(group => {
+        const boxes  = group.querySelectorAll('input[name="rules"]:not([disabled])');
+        if (boxes.length === 0) return; // always-on group, nothing to sync
+        const checked = group.querySelectorAll('input[name="rules"]:not([disabled]):checked').length;
+
+        const countEl = group.querySelector('.grp-selected');
+        if (countEl) countEl.textContent = checked;
+
+        const master = group.querySelector('.rule-group-master');
+        if (master) {
+            master.checked       = checked === boxes.length;
+            master.indeterminate = checked > 0 && checked < boxes.length;
+        }
+    });
+}
+
+// Master switch on a group header: check/uncheck all rules in that group.
+function toggleGroup(master) {
+    const group = master.closest('.rule-group');
+    group.querySelectorAll('input[name="rules"]:not([disabled])')
+        .forEach(cb => cb.checked = master.checked);
+    updateRuleCount();
+}
+
+function updateRuleCount() {
+
+    const checked =
+        enabledRuleBoxes().filter(cb => cb.checked).length;
+
+    document.getElementById(
+        'selectedRuleCount'
+    ).textContent = checked;
+
+    updateGroupStates();
+    if (window.refreshRuleTabCounts) refreshRuleTabCounts();
+    updateUploadButtonState();
+}
+
+
+
+<!--    function updateRuleCount() {-->
+<!--        const checked =-->
+<!--            document.querySelectorAll('input[name="rules"]:checked').length;-->
+
+<!--        document.getElementById('selectedRuleCount').textContent = checked;-->
+<!--    }-->
+
+
+<!--    function updateRuleCount() {-->
+
+<!--    const checked =-->
+<!--        document.querySelectorAll(-->
+<!--            'input[name="rules"]:checked'-->
+<!--        ).length;-->
+
+<!--    document.getElementById(-->
+<!--        'selectedRuleCount'-->
+<!--    ).textContent = checked;-->
+
+<!--    const uploadBtn =-->
+<!--        document.getElementById("uploadBtn");-->
+
+<!--    const errorBox =-->
+<!--        document.getElementById("ruleValidationError");-->
+
+<!--    if (checked === 0) {-->
+
+<!--        uploadBtn.disabled = true;-->
+
+<!--        errorBox.style.display = "block";-->
+
+<!--    } else {-->
+
+<!--        uploadBtn.disabled = false;-->
+
+<!--        errorBox.style.display = "none";-->
+<!--    }-->
+<!--}-->
+
+    function selectAllRules() {
+        enabledRuleBoxes().forEach(cb => cb.checked = true);
+        updateRuleCount();
+    }
+
+    function clearAllRules() {
+        enabledRuleBoxes().forEach(cb => cb.checked = false);
+        updateRuleCount();
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+
+        document.querySelectorAll('input[name="rules"]')
+            .forEach(cb => {
+                cb.addEventListener('change', updateRuleCount);
+            });
+
+        document.getElementById("hiddenFile")
+    .addEventListener("change", updateUploadButtonState);
+
+        updateRuleCount();
+    });
+
+<!--    loader JS-->
+    let uploadInProgress = false;
+
+    document
+    .getElementById("uploadForm")
+    .addEventListener("submit", function (e) {
+
+        if(uploadInProgress){
+
+            e.preventDefault();
+            return;
+        }
+
+        uploadInProgress = true;
+
+        const uploadBtn =
+            document.getElementById("uploadBtn");
+
+        uploadBtn.disabled = true;
+
+        uploadBtn.innerHTML =
+            '<i class="fa fa-spinner fa-spin"></i> Processing...';
+
+<!--        document-->
+<!--            .getElementById("uploadLoader")-->
+<!--            .style.display = "flex";-->
+
+        showLoader(
+    "Uploading Workbook",
+    "Validating selected rules..."
+);
+        });
+
+
+
+</script>
+
+<!--<script>-->
+
+<!--    function selectAllRules() {-->
+<!--        document.querySelectorAll('input[name="rules"]')-->
+<!--            .forEach(cb => cb.checked = true);-->
+<!--    }-->
+
+<!--    function clearAllRules() {-->
+<!--        document.querySelectorAll('input[name="rules"]')-->
+<!--            .forEach(cb => cb.checked = false);-->
+<!--    }-->
+
+<!--</script>-->
 </body>
 </html>

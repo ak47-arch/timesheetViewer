@@ -1,15 +1,12 @@
 package com.timesheet.validator.controller;
 
 import com.timesheet.validator.domain.UploadSession;
+import com.timesheet.validator.domain.ValidationRule;
+import com.timesheet.validator.config.RuleCatalog;
 import com.timesheet.validator.dto.SheetDto;
 import com.timesheet.validator.dto.ValidationResultDto;
-import com.timesheet.validator.repository.PublicHolidayRepository;
-import com.timesheet.validator.repository.ResourceRepository;
-import com.timesheet.validator.repository.UploadSessionRepository;
-import com.timesheet.validator.repository.ValidationIssueRepository;
-import com.timesheet.validator.service.ExcelParserService;
-import com.timesheet.validator.service.SheetViewService;
-import com.timesheet.validator.service.ValidationService;
+import com.timesheet.validator.repository.*;
+import com.timesheet.validator.service.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Controller;
@@ -18,6 +15,12 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import javax.servlet.http.HttpServletResponse;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 @Controller
@@ -25,29 +28,42 @@ import java.util.List;
 @Slf4j
 public class MainController {
 
-    private final ExcelParserService parser;
-    private final ValidationService  validator;
-    private final SheetViewService   sheetView;
+    private final ExcelParserService    parser;
+    private final ValidationService     validator;
+    private final SheetViewService      sheetView;
     private final UploadSessionRepository sessionRepo;
     private final ValidationIssueRepository issueRepo;
-    private final PublicHolidayRepository holidayRepo;
-    private final ResourceRepository resourceRepo;
+    private final PublicHolidayRepository   holidayRepo;
+    private final ResourceRepository        resourceRepo;
+    private final RuleCatalog               ruleCatalog;
 
-    // ── Home / Upload ─────────────────────────────────────────────────────────
+    // ── Home ─────────────────────────────────────────────────────────────────
     @GetMapping("/")
     public String home(Model model) {
-        model.addAttribute("sessions", sessionRepo.findAllByOrderByUploadedAtDesc());
-        model.addAttribute("holidayCount", holidayRepo.count());
+        model.addAttribute("sessions",      sessionRepo.findAllByOrderByUploadedAtDesc());
+        model.addAttribute("holidayCount",  holidayRepo.count());
         model.addAttribute("resourceCount", resourceRepo.count());
-        model.addAttribute("holidays", holidayRepo.findAll());
+        model.addAttribute("holidays",      holidayRepo.findAll());
+        model.addAttribute("ruleGroups",    ruleCatalog.getGroups());
+        model.addAttribute("totalRuleCount", ruleCatalog.getToggleableRuleCount());
         return "pages/home";
     }
 
+    // ── Upload ────────────────────────────────────────────────────────────────
     @PostMapping("/upload")
     public String upload(@RequestParam("file") MultipartFile file,
+                         @RequestParam(value = "rules", required = false)
+                         List<String> selectedRules,
                          RedirectAttributes ra) {
         if (file.isEmpty()) {
-            ra.addFlashAttribute("error", "Please select an Excel (.xlsx) file to upload.");
+            ra.addFlashAttribute("error", "Please select an Excel (.xlsx) file.");
+            return "redirect:/";
+        }
+        if (selectedRules == null || selectedRules.isEmpty()) {
+            ra.addFlashAttribute(
+                    "error",
+                    "Please select at least one validation rule."
+            );
             return "redirect:/";
         }
         String name = file.getOriginalFilename();
@@ -56,10 +72,9 @@ public class MainController {
             return "redirect:/";
         }
         try {
-            String sessionId = parser.parse(file);
-            // Auto-validate after upload
+            String sessionId = parser.parse(file, selectedRules);
             validator.validate(sessionId);
-            ra.addFlashAttribute("success", "File uploaded successfully! Session: " + sessionId.substring(0, 8) + "…");
+//            ra.addFlashAttribute("success", "File uploaded! Session: " + sessionId.substring(0, 8) + "…");
             return "redirect:/view/" + sessionId;
         } catch (Exception e) {
             log.error("Upload failed", e);
@@ -68,39 +83,257 @@ public class MainController {
         }
     }
 
-    // ── Sheet Viewer ──────────────────────────────────────────────────────────
+    // ── Viewer ────────────────────────────────────────────────────────────────
     @GetMapping("/view/{sessionId}")
     public String view(@PathVariable String sessionId,
-                       @RequestParam(defaultValue = "0") int tab,
+//                       @RequestParam(defaultValue = "0") int tab,
+                       @RequestParam(required = false) Integer tab,
+                       @RequestParam(required = false, defaultValue = "all") String filter,
                        Model model) {
         UploadSession session = sessionRepo.findBySessionId(sessionId)
                 .orElseThrow(() -> new RuntimeException("Session not found: " + sessionId));
 
-        List<SheetDto> sheets = sheetView.getSheets(sessionId);
-
         long errors   = issueRepo.countBySessionIdAndSeverity(sessionId, "CRITICAL");
         long warnings = issueRepo.countBySessionIdAndSeverity(sessionId, "WARNING");
 
-        model.addAttribute("session", session);
-        model.addAttribute("sheets", sheets);
-        model.addAttribute("activeTab", tab);
-        model.addAttribute("errorCount", errors);
-        model.addAttribute("warningCount", warnings);
-        model.addAttribute("allIssues", issueRepo.findBySessionId(sessionId));
+        // Apply filter
+        var all = issueRepo.findBySessionId(sessionId);
+        var filtered = switch (filter.toLowerCase()) {
+            case "critical" -> all.stream().filter(i -> "CRITICAL".equals(i.getSeverity())).toList();
+            case "warning"  -> all.stream().filter(i -> "WARNING".equals(i.getSeverity())).toList();
+            default         -> all;
+        };
+
+        // Serialize all issues to JSON for client-side jsGrid (no AJAX needed)
+        String issuesJson = "[]";
+        try {
+            issuesJson = new ObjectMapper().writeValueAsString(
+                issueRepo.findBySessionId(sessionId)); // always full list for JS
+        } catch (Exception e) {
+            log.warn("Could not serialize issues to JSON: {}", e.getMessage());
+        }
+
+        boolean hasMandatoryErrors = all.stream()
+                .anyMatch(i -> "TS-08".equals(i.getRuleId()));
+
+        model.addAttribute("hasMandatoryErrors", hasMandatoryErrors);
+
+        model.addAttribute("uploadSession",       session);
+
+        List<String> enabledRuleDescriptions = new ArrayList<>();
+        List<String> enabledRuleIds = new ArrayList<>();
+
+        if (session.getEnabledRules() != null) {
+
+            for (String ruleId : session.getEnabledRules().split(",")) {
+
+                enabledRuleIds.add(ruleId);
+
+                ValidationRule rule = ValidationRule.fromRuleId(ruleId);
+
+                if (rule != null) {
+                    enabledRuleDescriptions.add(
+                            rule.getRuleId() + " - " + rule.getDescription()
+                    );
+                }
+            }
+        }
+
+        model.addAttribute("enabledRules", enabledRuleDescriptions);
+        model.addAttribute("enabledRuleIds", enabledRuleIds);
+        model.addAttribute("ruleGroups", ruleCatalog.getGroups());
+
+        // Lazy loading: ship only lightweight per-sheet metadata (name, index,
+        // row/col counts). The grids themselves are fetched per tab via
+        // /api/view/{sessionId}/sheet/{index}.
+        var metas = sheetView.getSheetMetas(sessionId);
+        model.addAttribute("sheetMetas",    metas);
+
+        // ── Phased validation state ──────────────────────────────────────────
+        String phase = session.getValidationPhase() == null ? "TIMESHEET"
+                : session.getValidationPhase();
+        boolean pivotUnlocked = "PIVOT".equalsIgnoreCase(phase);
+        long timesheetErrors = issueRepo
+                .countBySessionIdAndSheetNameAndSeverity(sessionId, "Timesheet", "CRITICAL");
+        int pivotTabIndex = metas.stream()
+                .filter(m -> "Pivot".equalsIgnoreCase(m.getSheetName()))
+                .map(m -> m.getSheetIndex()).filter(java.util.Objects::nonNull)
+                .findFirst().orElse(-1);
+
+        model.addAttribute("validationPhase",     phase);
+        model.addAttribute("pivotUnlocked",       pivotUnlocked);
+        model.addAttribute("timesheetErrors",     timesheetErrors);
+        model.addAttribute("pivotTabIndex",       pivotTabIndex);
+
+
+        model.addAttribute("errorCount",    errors);
+        model.addAttribute("warningCount",  warnings);
+        model.addAttribute("allIssues",     filtered);      // server-side filtered list (kept for th:if checks)
+        model.addAttribute("allIssuesJson", issuesJson);    // full JSON for jsGrid
+
+        if (tab == null) {
+
+            tab = metas.stream()
+                    .filter(m ->
+                            "Timesheet".equalsIgnoreCase(
+                                    m.getSheetName()))
+                    .map(m -> m.getSheetIndex())
+                    .findFirst()
+                    .orElse(0);
+        }
+
+
+        model.addAttribute("activeTab",     tab);
         return "pages/viewer";
+    }
+
+    // ── Phased validation: advance Timesheet → Pivot ──────────────────────────
+    @PostMapping("/view/{sessionId}/advance")
+    public String advancePhase(@PathVariable String sessionId, RedirectAttributes ra) {
+        UploadSession session = sessionRepo.findBySessionId(sessionId)
+                .orElseThrow(() -> new RuntimeException("Session not found"));
+
+        long tsErrors = issueRepo
+                .countBySessionIdAndSheetNameAndSeverity(sessionId, "Timesheet", "CRITICAL");
+
+        if (tsErrors > 0) {
+            ra.addFlashAttribute("error",
+                    "Cannot proceed to Pivot validation — resolve the " + tsErrors
+                    + " unresolved Timesheet error(s) first, then re-validate.");
+            return "redirect:/view/" + sessionId;
+        }
+
+        session.setValidationPhase("PIVOT");
+        sessionRepo.save(session);
+        ValidationResultDto result = validator.validate(sessionId);   // now runs pivot rules
+
+        ra.addFlashAttribute("success",
+                "Timesheet passed. Pivot validation unlocked — found "
+                + result.getErrorCount() + " pivot error(s).");
+
+        int pivotTab = sheetView.getSheetMetas(sessionId).stream()
+                .filter(m -> "Pivot".equalsIgnoreCase(m.getSheetName()))
+                .map(m -> m.getSheetIndex()).filter(java.util.Objects::nonNull)
+                .findFirst().orElse(0);
+        return "redirect:/view/" + sessionId + "?tab=" + pivotTab;
+    }
+
+    // ── Phased validation: go back to the Timesheet phase ─────────────────────
+    @PostMapping("/view/{sessionId}/reset-phase")
+    public String resetPhase(@PathVariable String sessionId, RedirectAttributes ra) {
+        UploadSession session = sessionRepo.findBySessionId(sessionId)
+                .orElseThrow(() -> new RuntimeException("Session not found"));
+        session.setValidationPhase("TIMESHEET");
+        sessionRepo.save(session);
+        validator.validate(sessionId);
+        ra.addFlashAttribute("success", "Back to Timesheet validation.");
+        return "redirect:/view/" + sessionId;
     }
 
     // ── Re-validate ───────────────────────────────────────────────────────────
     @PostMapping("/validate/{sessionId}")
     public String validate(@PathVariable String sessionId, RedirectAttributes ra) {
+
+        log.info("REVALIDATE CLICKED FOR SESSION = {}", sessionId);
+
         ValidationResultDto result = validator.validate(sessionId);
-        if (result.isPassed()) {
-            ra.addFlashAttribute("success", "Validation passed! No critical errors.");
-        } else {
-            ra.addFlashAttribute("warning",
-                    "Validation found " + result.getErrorCount() + " error(s) and "
-                    + result.getWarningCount() + " warning(s).");
-        }
+
+        log.info("REVALIDATION COMPLETED. Errors={} Warnings={}",
+                result.getErrorCount(),
+                result.getWarningCount());
+
+        ra.addFlashAttribute(result.isPassed() ? "success" : "warning",
+                result.isPassed() ? "Validation passed — no critical errors."
+                        : "Found " + result.getErrorCount() + " error(s) and "
+                          + result.getWarningCount() + " warning(s).");
         return "redirect:/view/" + sessionId;
     }
+
+
+    //update rules
+    @PostMapping("/update-rules/{sessionId}")
+    public String updateRules(@PathVariable String sessionId,
+                              @RequestParam(required = false)
+                              List<String> rules,
+                              RedirectAttributes ra) {
+
+        log.info("UPDATE RULES CALLED");
+        log.info("RULES RECEIVED = {}", rules);
+
+        UploadSession session = sessionRepo.findBySessionId(sessionId)
+                .orElseThrow(() ->
+                        new RuntimeException("Session not found"));
+
+        if (rules == null || rules.isEmpty()) {
+            ra.addFlashAttribute("error",
+                    "Please select at least one validation rule.");
+            return "redirect:/view/" + sessionId;
+        }
+
+        session.setEnabledRules(String.join(",", rules));
+
+        sessionRepo.save(session);
+
+        ValidationResultDto result =
+                validator.validate(sessionId);
+
+        ra.addFlashAttribute(
+                result.isPassed() ? "success" : "warning",
+                result.isPassed()
+                        ? "Validation passed."
+                        : "Validation completed. Found "
+                        + result.getErrorCount()
+                        + " errors and "
+                        + result.getWarningCount()
+                        + " warnings."
+        );
+
+        return "redirect:/view/" + sessionId;
+    }
+
+    // ── Export Issues as CSV ──────────────────────────────────────────────────
+    // NOTE: URL uses /export-csv/ to avoid the // path segment that Spring
+    // Security rejects when using /export/{id}/issues.csv  pattern.
+    @GetMapping("/export-csv/{sessionId}")
+    public void exportCsv(@PathVariable String sessionId,
+                          @RequestParam(required = false, defaultValue = "all") String filter,
+                          HttpServletResponse response) throws IOException {
+        response.setContentType("text/csv;charset=UTF-8");
+        response.setHeader("Content-Disposition",
+                "attachment; filename=\"issues-" + sessionId.substring(0, 8) + ".csv\"");
+
+        var all = issueRepo.findBySessionId(sessionId);
+        var issues = switch (filter.toLowerCase()) {
+            case "critical" -> all.stream().filter(i -> "CRITICAL".equals(i.getSeverity())).toList();
+            case "warning"  -> all.stream().filter(i -> "WARNING".equals(i.getSeverity())).toList();
+            default         -> all;
+        };
+
+        try (PrintWriter pw = new PrintWriter(
+                new OutputStreamWriter(response.getOutputStream(), StandardCharsets.UTF_8))) {
+            pw.println("Rule ID,Severity,Sheet,Row,Field,Message");
+            for (var issue : issues) {
+                pw.printf("\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"%n",
+                        csv(issue.getRuleId()), csv(issue.getSeverity()),
+                        csv(issue.getSheetName()),
+                        (issue.getRowIdx() != null && issue.getRowIdx() >= 0
+                                ? "Row " + (issue.getRowIdx() + 1) : "Multiple"),
+                        csv(issue.getFieldName()), csv(issue.getMessage()));
+            }
+        }
+    }
+
+    // ── Login page ────────────────────────────────────────────────────────────
+    @GetMapping("/login")
+    public String login() { return "pages/login"; }
+
+    private String csv(String s) {
+        return s == null ? "" : s.replace("\"", "\"\"");
+    }
+
+    @GetMapping("/403")
+    public String forbidden() {
+        return "pages/403";
+    }
+
 }

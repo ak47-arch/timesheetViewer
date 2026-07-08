@@ -10,12 +10,14 @@ import com.timesheet.validator.repository.SheetMetaRepository;
 import com.timesheet.validator.repository.ValidationIssueRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class SheetViewService {
 
     private final SheetMetaRepository sheetMetaRepo;
@@ -30,10 +32,30 @@ public class SheetViewService {
         List<SheetMeta> metas = sheetMetaRepo.findBySessionIdOrderBySheetIndex(sessionId);
 
         // Build an issue lookup: sheetName → rowIdx → colIdx → issue
-        Map<String, Map<Integer, Map<Integer, ValidationIssue>>> issueMap = buildIssueMap(sessionId);
+        Map<String, Map<Integer, Map<Integer, List<ValidationIssue>>>> issueMap = buildIssueMap(sessionId);
 
         List<SheetDto> result = new ArrayList<>();
         for (SheetMeta meta : metas) {
+            result.add(buildSheet(sessionId, meta, issueMap));
+        }
+        return result;
+    }
+
+    /**
+     * Builds a single sheet's grid on demand. Backs the lazy per-tab API so the
+     * viewer no longer has to serialise every sheet into one giant page.
+     */
+    public SheetDto getSheet(String sessionId, int sheetIndex) {
+        SheetMeta meta = sheetMetaRepo.findBySessionIdOrderBySheetIndex(sessionId).stream()
+                .filter(m -> m.getSheetIndex() != null && m.getSheetIndex() == sheetIndex)
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException(
+                        "Sheet index " + sheetIndex + " not found for session " + sessionId));
+        return buildSheet(sessionId, meta, buildIssueMap(sessionId));
+    }
+
+    private SheetDto buildSheet(String sessionId, SheetMeta meta,
+                               Map<String, Map<Integer, Map<Integer, List<ValidationIssue>>>> issueMap) {
             List<CellData> cells = cellDataRepo
                     .findBySessionIdAndSheetNameOrderByRowIdxAscColIdxAsc(sessionId, meta.getSheetName());
 
@@ -50,6 +72,18 @@ public class SheetViewService {
                 Map<Integer, CellData> colMap = rowEntry.getValue().stream()
                         .collect(Collectors.toMap(CellData::getColIdx, c -> c, (a, b) -> a));
 
+
+                CellData employeeCell = colMap.get(0);
+
+                if(employeeCell != null){
+                    log.info(
+                            "VIEWER ROW -> rowIdx={} employee={}",
+                            ri,
+                            employeeCell.getDisplayValue()
+                    );
+                }
+
+
                 List<CellDto> row = new ArrayList<>();
                 for (int ci = 0; ci < maxCol; ci++) {
                     CellData c = colMap.get(ci);
@@ -59,9 +93,33 @@ public class SheetViewService {
                     boolean header = c != null && Boolean.TRUE.equals(c.getIsHeader());
 
                     // Overlay validation issue if any
-                    ValidationIssue issue = getIssue(issueMap, meta.getSheetName(), ri, ci);
-                    String validationMsg = issue != null ? issue.getMessage() : null;
-                    String severity      = issue != null ? issue.getSeverity() : null;
+                    List<ValidationIssue> issues =
+                            getIssues(issueMap,
+                                    meta.getSheetName(),
+                                    ri,
+                                    ci);
+
+                    List<String> validationMessages = issues.stream()
+                            .map(ValidationIssue::getMessage)
+                            .collect(Collectors.toList());
+
+                    List<String> severities = issues.stream()
+                            .map(ValidationIssue::getSeverity)
+                            .collect(Collectors.toList());
+
+                    String highestSeverity = null;
+
+                    if (severities.contains("CRITICAL")) {
+                        highestSeverity = "CRITICAL";
+                    }
+                    else if (severities.contains("WARNING")) {
+                        highestSeverity = "WARNING";
+                    }
+
+                    boolean employeeIssue =
+                            ci == 0 &&
+                                    issues != null &&
+                                    !issues.isEmpty();
 
                     // Build formula tooltip
                     String tooltip = buildTooltip(formula, display, type);
@@ -72,22 +130,22 @@ public class SheetViewService {
                             .formula(tooltip)
                             .cellType(type)
                             .isHeader(header)
-                            .validationMsg(validationMsg)
-                            .severity(severity)
+                            .validationMessages(validationMessages)
+                            .severities(severities)
+                            .highestSeverity(highestSeverity)
+                            .employeeIssue(employeeIssue)
                             .build());
                 }
                 rows.add(row);
             }
 
-            result.add(SheetDto.builder()
+            return SheetDto.builder()
                     .sheetName(meta.getSheetName())
                     .sheetIndex(meta.getSheetIndex())
                     .rowCount(meta.getRowCount())
                     .colCount(maxCol)
                     .rows(rows)
-                    .build());
-        }
-        return result;
+                    .build();
     }
 
     public List<SheetMeta> getSheetMetas(String sessionId) {
@@ -104,26 +162,70 @@ public class SheetViewService {
         return null;
     }
 
-    private Map<String, Map<Integer, Map<Integer, ValidationIssue>>> buildIssueMap(String sessionId) {
+    private Map<String, Map<Integer, Map<Integer, List<ValidationIssue>>>> buildIssueMap(String sessionId) {
         List<ValidationIssue> issues = issueRepo.findBySessionId(sessionId);
-        Map<String, Map<Integer, Map<Integer, ValidationIssue>>> map = new HashMap<>();
+        Map<String, Map<Integer, Map<Integer, List<ValidationIssue>>>> map = new HashMap<>();
         for (ValidationIssue issue : issues) {
             if (issue.getRowIdx() == null || issue.getColIdx() == null
                     || issue.getRowIdx() < 0 || issue.getColIdx() < 0) continue;
             map.computeIfAbsent(issue.getSheetName(), k -> new HashMap<>())
                .computeIfAbsent(issue.getRowIdx(), k -> new HashMap<>())
-               .put(issue.getColIdx(), issue);
+                    .computeIfAbsent(issue.getColIdx(),
+                            k -> new ArrayList<>())
+                    .add(issue);
         }
         return map;
     }
 
-    private ValidationIssue getIssue(
-            Map<String, Map<Integer, Map<Integer, ValidationIssue>>> map,
-            String sheet, int row, int col) {
-        return Optional.ofNullable(map.get(sheet))
-                .map(r -> r.get(row))
-                .map(c -> c.get(col))
-                .orElse(null);
+//    private List<ValidationIssue> getIssues(
+//            Map<String, Map<Integer, Map<Integer, List<ValidationIssue>>>> map,
+//            String sheet,
+//            int row,
+//            int col) {
+//
+//        return Optional.ofNullable(map.get(sheet))
+//                .map(r -> r.get(row))
+//                .map(c -> c.get(col))
+//                .orElse(Collections.emptyList());
+//    }
+
+
+    private List<ValidationIssue> getIssues(
+            Map<String, Map<Integer, Map<Integer, List<ValidationIssue>>>> map,
+            String sheet,
+            int row,
+            int col) {
+
+        List<ValidationIssue> issues =
+                Optional.ofNullable(map.get(sheet))
+                        .map(r -> r.get(row))
+                        .map(c -> c.get(col))
+                        .orElse(Collections.emptyList());
+
+//        if (!issues.isEmpty()) {
+//
+//            log.info(
+//                    "CELL HIGHLIGHT -> sheet={} row={} col={} issues={}",
+//                    sheet,
+//                    row,
+//                    col,
+//                    issues.size()
+//            );
+//        }
+
+        if (!issues.isEmpty()) {
+
+            log.info(
+                    "CELL HIGHLIGHT -> sheet={} row={} col={} rule={} msg={}",
+                    sheet,
+                    row,
+                    col,
+                    issues.get(0).getRuleId(),
+                    issues.get(0).getMessage()
+            );
+        }
+
+        return issues;
     }
 
     private String nvl(String s) { return s == null ? "" : s; }

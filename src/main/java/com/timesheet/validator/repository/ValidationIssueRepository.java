@@ -6,5 +6,6 @@ public interface ValidationIssueRepository extends JpaRepository<ValidationIssue
     List<ValidationIssue> findBySessionId(String sessionId);
     List<ValidationIssue> findBySessionIdAndSeverity(String sessionId, String severity);
     long countBySessionIdAndSeverity(String sessionId, String severity);
+    long countBySessionIdAndSheetNameAndSeverity(String sessionId, String sheetName, String severity);
     void deleteBySessionId(String sessionId);
 }

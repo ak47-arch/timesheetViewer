@@ -12,6 +12,11 @@ public class CellDto {
     private String formula;        // null when no formula
     private String cellType;
     private boolean isHeader;
-    private String validationMsg;  // non-null = this cell has a validation issue
-    private String severity;       // CRITICAL | WARNING
+//    private String validationMsg;  // non-null = this cell has a validation issue
+//    private String severity;       // CRITICAL | WARNING
+
+    private List<String> validationMessages;
+    private List<String> severities;
+    private String highestSeverity;
+    private boolean employeeIssue;
 }

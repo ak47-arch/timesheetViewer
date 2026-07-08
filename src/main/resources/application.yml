@@ -14,7 +14,7 @@ spring:
         web-allow-others: false
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: update
     show-sql: false
     properties:
       hibernate.format_sql: true
@@ -31,23 +31,95 @@ spring:
       max-request-size: 50MB
 
 server:
-  port: 8080
+  port: 8082
 
 logging:
   level:
-    com.xyzsoft.excelviewer: DEBUG
+    com.timesheet.validator: DEBUG
+    org.springframework.security: WARN
     org.liquibase: WARN
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MASTER / REFERENCE DATA — edit here and restart to apply
 # ─────────────────────────────────────────────────────────────────────────────
 app:
+  rules:
+    # How often the catalog reloads rule config from the database (ms).
+    refresh-ms: 60000
+    # true → overwrite DB enabled flags from YAML on every startup.
+    # false → DB stays authoritative for enable/disable across restarts.
+    reseed-on-start: false
+    definitions:
+      # ── Timesheet sheet (user-selectable per upload) ──────────────────────
+      - { ruleId: TS-01, sheet: Timesheet, description: "Max 8 hrs/day per resource",    severity: CRITICAL, enabled: true,  alwaysOn: false, sortOrder: 1 }
+      - { ruleId: TS-02, sheet: Timesheet, description: "No weekend entries",             severity: CRITICAL, enabled: true,  alwaysOn: false, sortOrder: 2 }
+      - { ruleId: TS-03, sheet: Timesheet, description: "No public holiday entries",      severity: CRITICAL, enabled: true,  alwaysOn: false, sortOrder: 3 }
+      - { ruleId: TS-04, sheet: Timesheet, description: "Hours must be positive",         severity: CRITICAL, enabled: true,  alwaysOn: false, sortOrder: 4 }
+      - { ruleId: TS-05, sheet: Timesheet, description: "Resource must be in roster",     severity: WARNING,  enabled: true,  alwaysOn: false, sortOrder: 5 }
+      - { ruleId: TS-06, sheet: Timesheet, description: "SOW must match expected",        severity: CRITICAL, enabled: true,  alwaysOn: false, sortOrder: 6 }
+      - { ruleId: TS-07, sheet: Timesheet, description: "Date within engagement period",  severity: WARNING,  enabled: true,  alwaysOn: false, sortOrder: 7 }
+      - { ruleId: TS-08, sheet: Timesheet, description: "All fields are mandatory",       severity: CRITICAL, enabled: true,  alwaysOn: false, sortOrder: 8 }
+      # ── Pivot sheet (always-on reconciliation checks) ─────────────────────
+      - { ruleId: PS-01, sheet: Pivot,     description: "Resource present in Pivot sheet",       severity: CRITICAL, enabled: true, alwaysOn: true, sortOrder: 9 }
+      - { ruleId: PS-02, sheet: Pivot,     description: "Employee total hours match Timesheet",  severity: CRITICAL, enabled: true, alwaysOn: true, sortOrder: 10 }
+      - { ruleId: PS-03, sheet: Pivot,     description: "Date-wise total hours match Timesheet", severity: CRITICAL, enabled: true, alwaysOn: true, sortOrder: 11 }
+      - { ruleId: PS-04, sheet: Pivot,     description: "Employee x date hours match Timesheet", severity: CRITICAL, enabled: true, alwaysOn: true, sortOrder: 12 }
+      - { ruleId: PS-05, sheet: Pivot,     description: "Pivot grand total is correct",          severity: CRITICAL, enabled: true, alwaysOn: true, sortOrder: 13 }
+      - { ruleId: PS-06, sheet: Pivot,     description: "Working days match Timesheet",          severity: CRITICAL, enabled: true, alwaysOn: true, sortOrder: 14 }
   master:
     sow:
       sow-number: SOW_18_2026
       po-number: '3429004068'
       po-value: 7000000
       client: IGT
+
+
+    # ── Multi-SOW definitions ─────────────────────────────────────────────
+    # Each resource can be mapped to one or more SOWs via resourceIds list.
+    # The resource will see only their assigned SOWs in the entry form dropdown.
+    sows:
+      - sowNumber: SOW_18_2026
+        poNumber: '3429004068'
+        poValue: 7000000
+        client: IGT
+        description: XYZ SoftDev Development Services
+        startDate: "2026-01-01"
+        endDate: "2026-12-31"
+        active: true
+#        workingHours: 8
+        resourceIds:
+          - RES-001
+          - RES-002
+          - RES-003
+          - RES-004
+          - RES-005
+          - RES-006
+          - RES-007
+          - RES-008
+          - RES-009
+          - RES-010
+          - RES-011
+          - RES-012
+          - RES-013
+          - RES-014
+          - RES-015
+          - RES-016
+          - RES-017
+          - RES-018
+      - sowNumber: SOW_19_2026
+        poNumber: '3429004099'
+        poValue: 3500000
+        client: IGT
+        description: XYZ SoftDev Maintenance Services
+        startDate: "2026-04-01"
+        endDate: "2026-12-31"
+        active: true
+        resourceIds:
+          - RES-001
+          - RES-003
+          - RES-006
+          - RES-007
+          - RES-013
 
     # Public holidays — add/remove entries and restart
     holidays:
@@ -77,95 +149,126 @@ app:
       - resourceId: RES-001
         name: AKK
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2027-03-31"
       - resourceId: RES-002
         name: Amit Bhattacharjee
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-13"
       - resourceId: RES-003
         name: Anupam Khatiwada
         dailyRateUsd: 200
+        workingHoursPerDay: 4
         startDate: "2026-03-01"
         endDate: "2027-03-31"
       - resourceId: RES-004
         name: AS
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-005
         name: BK
         dailyRateUsd: 180
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-006
         name: HK
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-007
         name: Harpreet Singh Gulati
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-008
-        name: KS
+        name: Kashish Sahu
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-009
         name: MH
         dailyRateUsd: 180
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-010
         name: NM
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-011
         name: NN
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-012
         name: RSG
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-013
         name: Shubham Khojare
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-014
         name: SM
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-015
         name: SG
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-016
         name: SK2
         dailyRateUsd: 180
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-017
         name: TS
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-018
         name: Umesh Singh Kalakoti
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-16"
         endDate: "2026-03-31"
+#      - resourceId: RES-019
+#        name: Tarundeep Sharma
+#        dailyRateUsd: 200
+#        startDate: "2026-03-01"
+#        endDate: "2026-03-31"
+
 
     validation:
       max-hours-per-day: 8.0
       allow-weekend-override: false
       expected-sow: SOW_18_2026
+      # Configurable reasons for weekend override checkbox — add/remove and restart
+      weekendOverrideReasons:
+        - "Production incident / on-call support"
+        - "Client-requested emergency delivery"
+        - "Critical deadline — pre-approved by manager"
+        - "Go-live weekend support"
+        - "Other — see task description"

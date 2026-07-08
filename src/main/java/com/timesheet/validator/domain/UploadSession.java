@@ -8,5 +8,13 @@ public class UploadSession {
     @Column(name="UPLOADED_AT") private LocalDateTime uploadedAt;
     @Column(name="SHEET_COUNT") private Integer sheetCount;
     @Column(name="STATUS") private String status;
-    @PrePersist public void pre() { if(uploadedAt==null) uploadedAt=LocalDateTime.now(); }
+    @Column(name="ENABLED_RULES", length = 1000)
+    private String enabledRules;
+    /** Phased validation: TIMESHEET (default) then PIVOT once Timesheet is clean. */
+    @Column(name="VALIDATION_PHASE")
+    private String validationPhase;
+    @PrePersist public void pre() {
+        if(uploadedAt==null) uploadedAt=LocalDateTime.now();
+        if(validationPhase==null) validationPhase="TIMESHEET";
+    }
 }
