@@ -66,6 +66,31 @@ app:
       - { ruleId: PS-04, sheet: Pivot,     description: "Employee x date hours match Timesheet", severity: CRITICAL, enabled: true, alwaysOn: true, sortOrder: 12 }
       - { ruleId: PS-05, sheet: Pivot,     description: "Pivot grand total is correct",          severity: CRITICAL, enabled: true, alwaysOn: true, sortOrder: 13 }
       - { ruleId: PS-06, sheet: Pivot,     description: "Working days match Timesheet",          severity: CRITICAL, enabled: true, alwaysOn: true, sortOrder: 14 }
+
+
+      - rule-id: PW-001
+        sheet: Projectwise
+        description: Project totals validation
+        severity: CRITICAL
+        enabled: true
+        always-on: false
+        sort-order: 201
+
+      - rule-id: PW-002
+        sheet: Projectwise
+        description: Sub Project totals validation
+        severity: CRITICAL
+        enabled: true
+        always-on: false
+        sort-order: 202
+
+      - rule-id: PW-003
+        sheet: Projectwise
+        description: Project Code totals validation
+        severity: CRITICAL
+        enabled: true
+        always-on: false
+        sort-order: 203
   master:
     sow:
       sow-number: SOW_18_2026

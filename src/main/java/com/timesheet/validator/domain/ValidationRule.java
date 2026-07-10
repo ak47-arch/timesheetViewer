@@ -10,11 +10,15 @@ public enum ValidationRule {
     TS_06("TS-06", "SOW must match expected"),
     TS_07("TS-07", "Date within engagement period"),
     TS_08("TS-08", "All fields are mandatory"),
-
-    //add
-    TS_09("TS-09", "Pivot employee validation"),
-    TS_10("TS-10", "Pivot hours validation"),
-    TS_11("TS-11", "Pivot working days validation");
+    PS_01("PS-01", "Pivot employee validation"),
+    PS_02("PS-02", "Pivot hours validation"),
+    PS_03("PS-03", "Pivot date totals validation"),
+    PS_04("PS-04", "Pivot employee/date validation"),
+    PS_05("PS-05", "Pivot grand total validation"),
+    PS_06("PS-06", "Pivot working days validation"),
+    PW_001("PW-001", "Project totals validation"),
+    PW_002("PW-002", "Sub Project totals validation"),
+    PW_003("PW-003", "Project Code totals validation");
 
 
     private final String ruleId;

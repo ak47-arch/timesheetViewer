@@ -8,6 +8,14 @@ import com.timesheet.validator.domain.CellData;
 import com.timesheet.validator.domain.ValidationIssue;
 import com.timesheet.validator.dto.ValidationResultDto;
 import com.timesheet.validator.dto.ValidationResultDto.IssueDto;
+import com.timesheet.validator.model.ProjectCodeKey;
+import com.timesheet.validator.model.ProjectKey;
+import com.timesheet.validator.model.ProjectSummary;
+import com.timesheet.validator.model.ProjectWiseHierarchy;
+import com.timesheet.validator.model.SubProjectKey;
+import com.timesheet.validator.model.SubProjectSummary;
+import com.timesheet.validator.service.ProjectWiseParser;
+import com.timesheet.validator.model.ProjectCodeSummary;
 import com.timesheet.validator.repository.CellDataRepository;
 import com.timesheet.validator.repository.PublicHolidayRepository;
 import com.timesheet.validator.repository.ResourceRepository;
@@ -20,10 +28,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.Locale;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.Locale;
 
 /**
  * Validates the Timesheet sheet of an uploaded workbook against:
@@ -47,6 +55,9 @@ public class ValidationService {
     private static final String SHEET = "Timesheet";
     private static final String PIVOT_SHEET = "Pivot";
 //    private static final double HOURS_PER_DAY = 8.0;
+    private static final String PROJECT_WISE_SHEET = "Projectwise";
+    
+    private final ProjectWiseParser projectWiseParser;
 
     //additon of new code
     private Map<String, Integer> pivotEmployeeRows =
@@ -124,6 +135,12 @@ public class ValidationService {
                 );
 
 
+        List<CellData> projectWiseCells =
+        cellRepo.findBySessionIdAndSheetNameOrderByRowIdxAscColIdxAsc(
+                sessionId,
+                PROJECT_WISE_SHEET);        
+
+
 //        log.info("=========== PIVOT  ROW = 3 DEBUG ===========");
 //
 //        for (CellData cell : pivotCells) {
@@ -171,6 +188,10 @@ public class ValidationService {
         // Phase gate: pivot reconciliation runs only once the Timesheet phase
         // has passed. In TIMESHEET phase we emit Timesheet (TS-xx) issues only.
         boolean pivotPhase = "PIVOT".equalsIgnoreCase(session.getValidationPhase());
+
+        boolean projectWisePhase =
+        "PROJECT_WISE".equalsIgnoreCase(
+                session.getValidationPhase());
 
         if (!pivotCells.isEmpty() && pivotPhase) {
 
@@ -636,6 +657,19 @@ public class ValidationService {
 
 
         // ── Aggregate daily hours per (name, date) for TS-01 ─────────────────
+
+        // ======================================================
+        // PROJECT WISE VALIDATION
+        // ======================================================
+
+        if (projectWisePhase && !projectWiseCells.isEmpty()) {
+
+        validateProjectWise(
+                sessionId,
+                allCells,
+                projectWiseCells,
+                issues);
+        }
         Map<String, Map<LocalDate, Double>> dailyHours = new HashMap<>();
 
         for (Map.Entry<Integer, Map<Integer, CellData>> rowEntry : rowMap.entrySet()) {
@@ -2140,4 +2174,446 @@ public class ValidationService {
         if (raw != null && !raw.isBlank()) return raw.trim();
         return c.getDisplayValue() == null ? "" : c.getDisplayValue().trim();
     }
+
+
+
+    private Map<ProjectKey, Double> extractTimesheetProjectTotals(List<CellData> timesheetCells) {
+
+        TreeMap<Integer, Map<Integer, CellData>> rowMap =
+                new TreeMap<>();
+
+        for (CellData c : timesheetCells) {
+
+                rowMap.computeIfAbsent(
+                        c.getRowIdx(),
+                        k -> new TreeMap<>())
+                        .put(c.getColIdx(), c);
+        }
+
+        int headerRow = rowMap.firstKey();
+
+        Map<ProjectKey, Double> totals =
+                new HashMap<>();
+
+        for (Map.Entry<Integer, Map<Integer, CellData>> entry
+                : rowMap.entrySet()) {
+
+                if (entry.getKey() == headerRow) {
+                continue;
+                }
+
+                Map<Integer, CellData> cols =
+                        entry.getValue();
+
+                String project =
+                        val(cols, 3);
+
+                String hours =
+                        val(cols, 7);
+
+                if (project.isBlank() || hours.isBlank()) {
+                continue;
+                }
+
+                totals.merge(
+                        new ProjectKey(project),
+                        parseDouble(hours),
+                        Double::sum);
+        }
+
+                return totals;
+        }
+
+
+        private Map<SubProjectKey, Double> extractTimesheetSubProjectTotals(
+        List<CellData> timesheetCells) {
+
+    TreeMap<Integer, Map<Integer, CellData>> rowMap =
+            new TreeMap<>();
+
+    for (CellData c : timesheetCells) {
+
+        rowMap.computeIfAbsent(
+                c.getRowIdx(),
+                k -> new TreeMap<>())
+                .put(c.getColIdx(), c);
+    }
+
+    int headerRow = rowMap.firstKey();
+
+    Map<SubProjectKey, Double> totals =
+            new HashMap<>();
+
+    for (Map.Entry<Integer, Map<Integer, CellData>> entry
+            : rowMap.entrySet()) {
+
+        if (entry.getKey() == headerRow) {
+            continue;
+        }
+
+        Map<Integer, CellData> cols =
+                entry.getValue();
+
+        String project =
+                val(cols, 3);
+
+        String subProject =
+                val(cols, 4);
+
+        String hours =
+                val(cols, 7);
+
+        if (project.isBlank()
+                || subProject.isBlank()
+                || hours.isBlank()) {
+
+            continue;
+        }
+
+        totals.merge(
+                new SubProjectKey(project, subProject),
+                parseDouble(hours),
+                Double::sum);
+    }
+
+    return totals;
+}
+
+
+private Map<ProjectCodeKey, Double> extractTimesheetProjectCodeTotals(
+        List<CellData> timesheetCells) {
+
+    TreeMap<Integer, Map<Integer, CellData>> rowMap =
+            new TreeMap<>();
+
+    for (CellData c : timesheetCells) {
+
+        rowMap.computeIfAbsent(
+                c.getRowIdx(),
+                k -> new TreeMap<>())
+                .put(c.getColIdx(), c);
+    }
+
+    int headerRow = rowMap.firstKey();
+
+    Map<ProjectCodeKey, Double> totals =
+            new HashMap<>();
+
+    for (Map.Entry<Integer, Map<Integer, CellData>> entry
+            : rowMap.entrySet()) {
+
+        if (entry.getKey() == headerRow) {
+            continue;
+        }
+
+        Map<Integer, CellData> cols =
+                entry.getValue();
+
+        String project =
+                val(cols, 3);
+
+        String subProject =
+                val(cols, 4);
+
+        String projectCode =
+                val(cols, 5);
+
+        String hours =
+                val(cols, 7);
+
+        if (project.isBlank()
+                || subProject.isBlank()
+                || projectCode.isBlank()
+                || hours.isBlank()) {
+
+            continue;
+        }
+
+        totals.merge(
+                new ProjectCodeKey(
+                        project,
+                        subProject,
+                        projectCode),
+                parseDouble(hours),
+                Double::sum);
+    }
+
+    return totals;
+}
+
+
+private ValidationIssue projectWiseIssue(
+        String sid,
+        String ruleId,
+        String severity,
+        int row,
+        int col,
+        String field,
+        String msg) {
+
+    return ValidationIssue.builder()
+            .sessionId(sid)
+            .ruleId(ruleId)
+            .severity(severity)
+            .sheetName(PROJECT_WISE_SHEET)
+            .rowIdx(row)
+            .colIdx(col)
+            .fieldName(field)
+            .message(renderMessage(
+                    ruleId,
+                    severity,
+                    field,
+                    msg))
+            .build();
+}
+
+
+/**
+ * Performs Project Wise validation.
+ *
+ * PW-001 : Project totals
+ * PW-002 : Sub Project totals
+ * PW-003 : Project Code totals
+ */
+private void validateProjectWise(
+        String sessionId,
+        List<CellData> timesheetCells,
+        List<CellData> projectWiseCells,
+        List<ValidationIssue> issues) {
+
+    log.info("==================================================");
+    log.info("Starting Project Wise Validation");
+    log.info("==================================================");
+
+    if (projectWiseCells == null || projectWiseCells.isEmpty()) {
+
+        log.warn("Project Wise sheet not found. Skipping validation.");
+        return;
+    }
+
+    ProjectWiseHierarchy hierarchy =
+            projectWiseParser.parse(projectWiseCells);
+
+    if (hierarchy.isEmpty()) {
+
+        log.warn("Project Wise sheet contains no parsable data.");
+        return;
+    }
+
+    Map<ProjectKey, Double> projectTotals =
+            extractTimesheetProjectTotals(timesheetCells);
+
+    Map<SubProjectKey, Double> subProjectTotals =
+            extractTimesheetSubProjectTotals(timesheetCells);
+
+    Map<ProjectCodeKey, Double> projectCodeTotals =
+            extractTimesheetProjectCodeTotals(timesheetCells);
+
+    log.info("Projects parsed      : {}", hierarchy.getProjects().size());
+    log.info("Sub Projects parsed  : {}", hierarchy.getSubProjects().size());
+    log.info("Project Codes parsed : {}", hierarchy.getProjectCodes().size());
+
+    validateProjects(
+            sessionId,
+            hierarchy,
+            projectTotals,
+            issues);
+
+    validateSubProjects(
+            sessionId,
+            hierarchy,
+            subProjectTotals,
+            issues);
+
+    validateProjectCodes(
+            sessionId,
+            hierarchy,
+            projectCodeTotals,
+            issues);
+
+    log.info("Project Wise Validation completed.");
+}
+
+
+
+/**
+ * PW-001
+ *
+ * Validates Project totals between the Project Wise sheet
+ * and the Timesheet sheet.
+ */
+private void validateProjects(
+        String sessionId,
+        ProjectWiseHierarchy hierarchy,
+        Map<ProjectKey, Double> projectTotals,
+        List<ValidationIssue> issues) {
+
+    log.info("Starting Project validation...");
+
+    for (ProjectSummary project : hierarchy.getProjects()) {
+
+        ProjectKey key = new ProjectKey(
+                project.getProjectName());
+
+        double expectedHours = project.getHours();
+
+        double actualHours = projectTotals.getOrDefault(
+                key,
+                0d);
+
+        if (Double.compare(expectedHours, actualHours) != 0) {
+
+            log.warn(
+                    "PW-001 failed. Project='{}', Expected={}, Actual={}",
+                    project.getProjectName(),
+                    expectedHours,
+                    actualHours);
+
+            issues.add(
+                    projectWiseIssue(
+                            sessionId,
+                            "PW-001",
+                            "ERROR",
+                            project.getExcelRow(),
+                            0,
+                            "Project",
+                            String.format(
+                                    "Project '%s' hours mismatch. Expected %.2f hours but found %.2f hours.",
+                                    project.getProjectName(),
+                                    expectedHours,
+                                    actualHours)));
+        }
+    }
+
+    log.info("Completed Project validation.");
+}
+
+
+/**
+ * PW-002
+ *
+ * Validates Sub Project totals between the Project Wise sheet
+ * and the Timesheet sheet.
+ */
+private void validateSubProjects(
+        String sessionId,
+        ProjectWiseHierarchy hierarchy,
+        Map<SubProjectKey, Double> subProjectTotals,
+        List<ValidationIssue> issues) {
+
+    log.info("Starting Sub Project validation...");
+
+    for (SubProjectSummary subProject : hierarchy.getSubProjects()) {
+
+        SubProjectKey key =
+                new SubProjectKey(
+                        subProject.getProjectName(),
+                        subProject.getSubProjectName());
+
+        double expectedHours =
+                subProject.getHours();
+
+        double actualHours =
+                subProjectTotals.getOrDefault(
+                        key,
+                        0d);
+
+        if (Double.compare(expectedHours, actualHours) != 0) {
+
+            log.warn(
+                    "PW-002 failed. Project='{}', SubProject='{}', Expected={}, Actual={}",
+                    subProject.getProjectName(),
+                    subProject.getSubProjectName(),
+                    expectedHours,
+                    actualHours);
+
+            issues.add(
+                    projectWiseIssue(
+                            sessionId,
+                            "PW-002",
+                            "ERROR",
+                            subProject.getExcelRow(),
+                            4,
+                            "Sub Project",
+                            String.format(
+                                    "Sub Project '%s' under Project '%s' has incorrect hours. Expected %.2f hours but found %.2f hours.",
+                                    subProject.getSubProjectName(),
+                                    subProject.getProjectName(),
+                                    expectedHours,
+                                    actualHours
+                            )));
+        }
+    }
+
+    log.info("Completed Sub Project validation.");
+}
+
+
+/**
+ * PW-003
+ *
+ * Validates Project Code totals between the Project Wise sheet
+ * and the Timesheet sheet.
+ */
+private void validateProjectCodes(
+        String sessionId,
+        ProjectWiseHierarchy hierarchy,
+        Map<ProjectCodeKey, Double> projectCodeTotals,
+        List<ValidationIssue> issues) {
+
+    log.info("Starting Project Code validation...");
+
+    for (ProjectCodeSummary projectCode
+            : hierarchy.getProjectCodes()) {
+
+        ProjectCodeKey key =
+                new ProjectCodeKey(
+                        projectCode.getProjectName(),
+                        projectCode.getSubProjectName(),
+                        projectCode.getProjectCode());
+
+        double expectedHours =
+                projectCode.getHours();
+
+        double actualHours =
+                projectCodeTotals.getOrDefault(
+                        key,
+                        0d);
+
+        if (Double.compare(expectedHours, actualHours) != 0) {
+
+            log.warn(
+                    "PW-003 failed. Project='{}', SubProject='{}', ProjectCode='{}', Expected={}, Actual={}",
+                    projectCode.getProjectName(),
+                    projectCode.getSubProjectName(),
+                    projectCode.getProjectCode(),
+                    expectedHours,
+                    actualHours);
+
+            issues.add(
+                    projectWiseIssue(
+                            sessionId,
+                            "PW-003",
+                            "CRITICAL",
+                            projectCode.getExcelRow(),
+                            5,
+                            "Project Code",
+                            String.format(
+                                    "Project Code '%s' under Sub Project '%s' of Project '%s' has incorrect hours. Expected %.2f hours but found %.2f hours.",
+                                    projectCode.getProjectCode(),
+                                    projectCode.getSubProjectName(),
+                                    projectCode.getProjectName(),
+                                    expectedHours,
+                                    actualHours
+                            )));
+        }
+    }
+
+    log.info("Completed Project Code validation.");
+}
+
+
+
+
+
 }
