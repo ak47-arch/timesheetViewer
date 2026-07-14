@@ -68,29 +68,32 @@ app:
       - { ruleId: PS-06, sheet: Pivot,     description: "Working days match Timesheet",          severity: CRITICAL, enabled: true, alwaysOn: true, sortOrder: 14 }
 
 
+      # Projectwise sheet (reconciliation checks)
+
       - rule-id: PW-001
         sheet: Projectwise
-        description: Project totals validation
+        description: "Project total hours match validated Timesheet"
         severity: CRITICAL
         enabled: true
         always-on: false
-        sort-order: 201
+        sort-order: 15
 
       - rule-id: PW-002
         sheet: Projectwise
-        description: Sub Project totals validation
+        description: "Sub Project total hours match validated Timesheet"
         severity: CRITICAL
         enabled: true
         always-on: false
-        sort-order: 202
+        sort-order: 16
 
       - rule-id: PW-003
         sheet: Projectwise
-        description: Project Code totals validation
+        description: "Project Code total hours match validated Timesheet"
         severity: CRITICAL
         enabled: true
         always-on: false
-        sort-order: 203
+        sort-order: 17
+
   master:
     sow:
       sow-number: SOW_18_2026

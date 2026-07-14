@@ -320,52 +320,213 @@
     <!-- ── Phased validation stepper ──────────────────────────────────────── -->
     <div class="phase-bar" id="phaseBar">
         <div class="phase-steps">
-            <div class="phase-step" th:classappend="${pivotUnlocked} ? ' done' : ' active'">
-                <span class="phase-num"><i th:if="${pivotUnlocked}" class="fa fa-check"></i><span th:unless="${pivotUnlocked}">1</span></span>
-                <span>Timesheet validation</span>
-            </div>
-            <div class="phase-connector" th:classappend="${pivotUnlocked} ? ' done' : ''"></div>
-            <div class="phase-step" th:classappend="${pivotUnlocked} ? ' active' : ' locked'">
-                <span class="phase-num"><i th:if="${!pivotUnlocked}" class="fa fa-lock"></i><span th:if="${pivotUnlocked}">2</span></span>
-                <span>Pivot validation</span>
-            </div>
+
+        <!-- Step 1 -->
+        <div class="phase-step"
+            th:classappend="${pivotUnlocked} ? ' done' : ' active'">
+
+            <span class="phase-num">
+                <i th:if="${pivotUnlocked}" class="fa fa-check"></i>
+                <span th:unless="${pivotUnlocked}">1</span>
+            </span>
+
+            <span>Timesheet validation</span>
         </div>
 
+        <div class="phase-connector"
+            th:classappend="${pivotUnlocked} ? ' done' : ''"></div>
+
+        <!-- Step 2 -->
+        <div class="phase-step"
+            th:classappend="${projectWiseUnlocked} ? ' done' :
+                            (${pivotUnlocked} ? ' active' : ' locked')">
+
+            <span class="phase-num">
+
+                <i th:if="${projectWiseUnlocked}"
+                class="fa fa-check"></i>
+
+                <i th:if="${!pivotUnlocked}"
+                class="fa fa-lock"></i>
+
+                <span th:if="${pivotUnlocked and !projectWiseUnlocked}">
+                    2
+                </span>
+
+            </span>
+
+            <span>Pivot validation</span>
+
+        </div>
+
+        <div class="phase-connector"
+            th:classappend="${projectWiseUnlocked} ? ' done' : ''"></div>
+
+        <!-- Step 3 -->
+        <div class="phase-step"
+            th:classappend="${projectWiseUnlocked} ? ' active' : ' locked'">
+
+            <span class="phase-num">
+
+                <i th:if="${!projectWiseUnlocked}"
+                class="fa fa-lock"></i>
+
+                <span th:if="${projectWiseUnlocked}">
+                    3
+                </span>
+
+            </span>
+
+            <span>Projectwise validation</span>
+
+        </div>
+
+    </div>
+
         <div class="phase-action">
+
+            <!-- ========================= -->
+            <!-- TIMESHEET PHASE -->
+            <!-- ========================= -->
             <span th:if="${!pivotUnlocked}">
+
                 <span th:if="${timesheetErrors > 0}" class="phase-hint">
                     <i class="fa fa-triangle-exclamation"></i>
-                    Resolve <b th:text="${timesheetErrors}">N</b> Timesheet error(s), then re-validate.
+                    Resolve
+                    <b th:text="${timesheetErrors}">0</b>
+                    Timesheet error(s), then re-validate.
                 </span>
+
                 <span th:if="${timesheetErrors == 0}" class="phase-hint ok">
-                    <i class="fa fa-circle-check"></i> Timesheet is clean.
+                    <i class="fa fa-circle-check"></i>
+                    Timesheet is clean.
                 </span>
-                <form th:action="@{/view/{id}/advance(id=${uploadSession.sessionId})}" method="post" style="display:inline">
-                    <button type="submit" class="btn btn-primary"
+
+                <form th:action="@{/view/{id}/advance(id=${uploadSession.sessionId})}"
+                    method="post"
+                    style="display:inline">
+
+                    <button class="btn btn-primary"
+                            type="submit"
                             th:disabled="${timesheetErrors > 0}">
-                        Proceed to Pivot <i class="fa fa-arrow-right"></i>
+
+                        Proceed to Pivot
+                        <i class="fa fa-arrow-right"></i>
+
                     </button>
+
                 </form>
+
             </span>
-            <form th:if="${pivotUnlocked}" th:action="@{/view/{id}/reset-phase(id=${uploadSession.sessionId})}"
-                  method="post" style="display:inline">
-                <button type="submit" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back to Timesheet</button>
-            </form>
+
+
+            <!-- ========================= -->
+            <!-- PIVOT PHASE -->
+            <!-- ========================= -->
+            <span th:if="${pivotUnlocked and !projectWiseUnlocked}">
+
+                <span th:if="${pivotErrors > 0}" class="phase-hint">
+
+                    <i class="fa fa-triangle-exclamation"></i>
+
+                    Resolve
+                    <b th:text="${pivotErrors}">0</b>
+                    Pivot error(s), then re-validate.
+
+                </span>
+
+                <span th:if="${pivotErrors == 0}" class="phase-hint ok">
+
+                    <i class="fa fa-circle-check"></i>
+
+                    Pivot validation completed.
+
+                </span>
+
+                <form th:action="@{/view/{id}/advance(id=${uploadSession.sessionId})}"
+                    method="post"
+                    style="display:inline">
+
+                    <button class="btn btn-primary"
+                            type="submit"
+                            th:disabled="${pivotErrors > 0}">
+
+                        Proceed to Projectwise
+                        <i class="fa fa-arrow-right"></i>
+
+                    </button>
+
+                </form>
+
+                <form th:action="@{/view/{id}/reset-phase(id=${uploadSession.sessionId})}"
+                    method="post"
+                    style="display:inline">
+
+                    <button class="btn btn-secondary"
+                            type="submit">
+
+                        <i class="fa fa-arrow-left"></i>
+
+                        Back to Timesheet
+
+                    </button>
+
+                </form>
+
+            </span>
+
+
+            <!-- ========================= -->
+            <!-- PROJECTWISE PHASE -->
+            <!-- ========================= -->
+            <span th:if="${projectWiseUnlocked}">
+
+                <form th:action="@{/view/{id}/reset-phase(id=${uploadSession.sessionId})}"
+                    method="post"
+                    style="display:inline">
+
+                    <button class="btn btn-secondary"
+                            type="submit">
+
+                        <i class="fa fa-arrow-left"></i>
+
+                        Back to Pivot
+
+                    </button>
+
+                </form>
+
+            </span>
+
         </div>
     </div>
 
     <!-- ── Sheet Tabs (grids are fetched per tab, not all up front) ───────── -->
     <div class="sheet-tabs-wrapper">
         <div class="sheet-tabs" id="sheetTabs">
-            <button th:each="meta, iStat : ${sheetMetas}"
+           <button th:each="meta, iStat : ${sheetMetas}"
                     th:id="'tab-btn-' + ${iStat.index}"
-                    th:with="locked=${#strings.equalsIgnoreCase(meta.sheetName,'Pivot') and !pivotUnlocked}"
+
+                    th:with="
+                        pivotLocked=${#strings.equalsIgnoreCase(meta.sheetName,'Pivot') and !pivotUnlocked},
+                        projectWiseLocked=${#strings.equalsIgnoreCase(meta.sheetName,'Projectwise') and !projectWiseUnlocked},
+                        locked=${pivotLocked or projectWiseLocked}
+                    "
+
                     th:class="${iStat.index == activeTab} ? 'sheet-tab active' : 'sheet-tab'"
                     th:classappend="${locked} ? ' sheet-tab-locked' : ''"
+
                     th:attr="data-index=${iStat.index}"
-                    th:onclick="${locked} ? 'lockedPivotClick()' : ('loadSheet(' + ${iStat.index} + ')')">
+
+                    th:onclick="${locked}
+                        ? 'lockedPhaseClick()'
+                        : ('loadSheet(' + ${iStat.index} + ')')">
+
                 <span th:text="${meta.sheetName}">Sheet</span>
-                <i th:if="${locked}" class="fa fa-lock phase-tab-lock"></i>
+
+                <i th:if="${locked}"
+                class="fa fa-lock phase-tab-lock"></i>
+
             </button>
         </div>
         <div class="sheet-info" id="sheetInfo"></div>
@@ -443,13 +604,25 @@
 <script th:src="@{/js/viewer-grid.js}"></script>
 <script th:src="@{/js/viewer-sheets.js}"></script>
 <script>
-    function lockedPivotClick() {
-        var bar = document.getElementById('phaseBar');
-        if (!bar) return;
-        bar.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        bar.classList.remove('phase-pulse');
-        void bar.offsetWidth;            // restart the animation
-        bar.classList.add('phase-pulse');
+    function lockedPhaseClick() {
+
+        const bar =
+            document.getElementById("phaseBar");
+
+        if (!bar) {
+            return;
+        }
+
+        bar.scrollIntoView({
+            behavior: "smooth",
+            block: "center"
+        });
+
+        bar.classList.remove("phase-pulse");
+
+        void bar.offsetWidth;
+
+        bar.classList.add("phase-pulse");
     }
 </script>
 

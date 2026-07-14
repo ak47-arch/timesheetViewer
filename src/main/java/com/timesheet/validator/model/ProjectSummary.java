@@ -17,14 +17,16 @@ public final class ProjectSummary {
 
     private final String projectName;
     private final double hours;
-    private final int excelRow;
+    private final CellReference hoursCell;
 
-    public ProjectSummary(String projectName,
-                          double hours,
-                          int excelRow) {
+    public ProjectSummary(
+            String projectName,
+            double hours,
+            CellReference hoursCell) {
+
         this.projectName = projectName;
         this.hours = hours;
-        this.excelRow = excelRow;
+        this.hoursCell = hoursCell;
     }
 
     public String getProjectName() {
@@ -35,8 +37,8 @@ public final class ProjectSummary {
         return hours;
     }
 
-    public int getExcelRow() {
-        return excelRow;
+    public CellReference getHoursCell() {
+        return hoursCell;
     }
 
     @Override
@@ -65,7 +67,7 @@ public final class ProjectSummary {
         return "ProjectSummary{" +
                 "projectName='" + projectName + '\'' +
                 ", hours=" + hours +
-                ", excelRow=" + excelRow +
+                ", hoursCell=" + hoursCell +
                 '}';
     }
 
