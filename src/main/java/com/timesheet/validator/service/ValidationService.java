@@ -8,6 +8,7 @@ import com.timesheet.validator.domain.CellData;
 import com.timesheet.validator.domain.ValidationIssue;
 import com.timesheet.validator.dto.ValidationResultDto;
 import com.timesheet.validator.dto.ValidationResultDto.IssueDto;
+import com.timesheet.validator.model.CellReference;
 import com.timesheet.validator.model.ProjectCodeKey;
 import com.timesheet.validator.model.ProjectKey;
 import com.timesheet.validator.model.ProjectSummary;
@@ -31,7 +32,6 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.Locale;
 
 /**
  * Validates the Timesheet sheet of an uploaded workbook against:
@@ -2221,6 +2221,11 @@ public class ValidationService {
                         Double::sum);
         }
 
+                log.info("==========================================");
+                log.info("PROJECT CODE TOTALS");
+                totals.forEach((k, v) ->
+                        log.info("{} -> {}", k, v));
+                log.info("==========================================");
                 return totals;
         }
 
@@ -2329,12 +2334,23 @@ private Map<ProjectCodeKey, Double> extractTimesheetProjectCodeTotals(
             continue;
         }
 
+        double rowHours = parseDouble(hours);
+
+        ProjectCodeKey key = new ProjectCodeKey(
+                project,
+                subProject,
+                projectCode);
+
+        log.info(
+                "PW-003 ROW -> Project='{}', SubProject='{}', ProjectCode='{}', Hours={}",
+                project,
+                subProject,
+                projectCode,
+                rowHours);
+
         totals.merge(
-                new ProjectCodeKey(
-                        project,
-                        subProject,
-                        projectCode),
-                parseDouble(hours),
+                key,
+                rowHours,
                 Double::sum);
     }
 
@@ -2366,6 +2382,23 @@ private ValidationIssue projectWiseIssue(
                     msg))
             .build();
 }
+
+        private ValidationIssue projectWiseIssue(
+                String sid,
+                String ruleId,
+                String severity,
+                CellReference cell,
+                String message) {
+
+        return projectWiseIssue(
+                sid,
+                ruleId,
+                severity,
+                cell.getRow(),
+                cell.getColumn(),
+                cell.getFieldName(),
+                message);
+        }
 
 
 /**
@@ -2455,9 +2488,9 @@ private void validateProjects(
         ProjectKey key = new ProjectKey(
                 project.getProjectName());
 
-        double expectedHours = project.getHours();
+        double actualHours = project.getHours();
 
-        double actualHours = projectTotals.getOrDefault(
+        double expectedHours = projectTotals.getOrDefault(
                 key,
                 0d);
 
@@ -2470,18 +2503,16 @@ private void validateProjects(
                     actualHours);
 
             issues.add(
-                    projectWiseIssue(
-                            sessionId,
-                            "PW-001",
-                            "ERROR",
-                            project.getExcelRow(),
-                            0,
-                            "Project",
-                            String.format(
-                                    "Project '%s' hours mismatch. Expected %.2f hours but found %.2f hours.",
-                                    project.getProjectName(),
-                                    expectedHours,
-                                    actualHours)));
+                projectWiseIssue(
+                        sessionId,
+                        "PW-001",
+                        "CRITICAL",
+                        project.getHoursCell(),
+                        String.format(
+                                "Project '%s' hours mismatch. Expected %.2f hours but found %.2f hours.",
+                                project.getProjectName(),
+                                expectedHours,
+                                actualHours)));
         }
     }
 
@@ -2510,10 +2541,10 @@ private void validateSubProjects(
                         subProject.getProjectName(),
                         subProject.getSubProjectName());
 
-        double expectedHours =
+        double actualHours =
                 subProject.getHours();
 
-        double actualHours =
+        double expectedHours =
                 subProjectTotals.getOrDefault(
                         key,
                         0d);
@@ -2528,20 +2559,18 @@ private void validateSubProjects(
                     actualHours);
 
             issues.add(
-                    projectWiseIssue(
-                            sessionId,
-                            "PW-002",
-                            "ERROR",
-                            subProject.getExcelRow(),
-                            4,
-                            "Sub Project",
-                            String.format(
-                                    "Sub Project '%s' under Project '%s' has incorrect hours. Expected %.2f hours but found %.2f hours.",
-                                    subProject.getSubProjectName(),
-                                    subProject.getProjectName(),
-                                    expectedHours,
-                                    actualHours
-                            )));
+                projectWiseIssue(
+                        sessionId,
+                        "PW-002",
+                        "CRITICAL",
+                        subProject.getHoursCell(),
+                        String.format(
+                                "Sub Project '%s' under Project '%s' has incorrect hours. Expected %.2f hours but found %.2f hours.",
+                                subProject.getSubProjectName(),
+                                subProject.getProjectName(),
+                                expectedHours,
+                                actualHours
+                        )));
         }
     }
 
@@ -2549,68 +2578,73 @@ private void validateSubProjects(
 }
 
 
-/**
- * PW-003
- *
- * Validates Project Code totals between the Project Wise sheet
- * and the Timesheet sheet.
- */
-private void validateProjectCodes(
-        String sessionId,
-        ProjectWiseHierarchy hierarchy,
-        Map<ProjectCodeKey, Double> projectCodeTotals,
-        List<ValidationIssue> issues) {
+        /**
+         * PW-003
+         *
+         * Validates Project Code totals between the Project Wise sheet
+         * and the Timesheet sheet.
+         */
+        private void validateProjectCodes(
+                String sessionId,
+                ProjectWiseHierarchy hierarchy,
+                Map<ProjectCodeKey, Double> projectCodeTotals,
+                List<ValidationIssue> issues) {
 
-    log.info("Starting Project Code validation...");
+        log.info("Starting Project Code validation...");
 
-    for (ProjectCodeSummary projectCode
-            : hierarchy.getProjectCodes()) {
+        for (ProjectCodeSummary projectCode
+                : hierarchy.getProjectCodes()) {
 
-        ProjectCodeKey key =
-                new ProjectCodeKey(
+                ProjectCodeKey key =
+                        new ProjectCodeKey(
+                                projectCode.getProjectName(),
+                                projectCode.getSubProjectName(),
+                                projectCode.getProjectCode());
+
+                double actualHours =
+                        projectCode.getHours();
+
+                double expectedHours =
+                        projectCodeTotals.getOrDefault(
+                                key,
+                                0d);
+
+
+                log.info(
+                "COMPARE -> key={} expected={} actual={}",
+                key,
+                expectedHours,
+                actualHours);
+
+                if (Double.compare(expectedHours, actualHours) != 0) {
+
+                log.warn(
+                        "PW-003 failed. Project='{}', SubProject='{}', ProjectCode='{}', Expected={}, Actual={}",
                         projectCode.getProjectName(),
                         projectCode.getSubProjectName(),
-                        projectCode.getProjectCode());
+                        projectCode.getProjectCode(),
+                        expectedHours,
+                        actualHours);
 
-        double expectedHours =
-                projectCode.getHours();
-
-        double actualHours =
-                projectCodeTotals.getOrDefault(
-                        key,
-                        0d);
-
-        if (Double.compare(expectedHours, actualHours) != 0) {
-
-            log.warn(
-                    "PW-003 failed. Project='{}', SubProject='{}', ProjectCode='{}', Expected={}, Actual={}",
-                    projectCode.getProjectName(),
-                    projectCode.getSubProjectName(),
-                    projectCode.getProjectCode(),
-                    expectedHours,
-                    actualHours);
-
-            issues.add(
-                    projectWiseIssue(
-                            sessionId,
-                            "PW-003",
-                            "CRITICAL",
-                            projectCode.getExcelRow(),
-                            5,
-                            "Project Code",
-                            String.format(
-                                    "Project Code '%s' under Sub Project '%s' of Project '%s' has incorrect hours. Expected %.2f hours but found %.2f hours.",
-                                    projectCode.getProjectCode(),
-                                    projectCode.getSubProjectName(),
-                                    projectCode.getProjectName(),
-                                    expectedHours,
-                                    actualHours
-                            )));
+                issues.add(
+                        projectWiseIssue(
+                                sessionId,
+                                "PW-003",
+                                "CRITICAL",
+                                projectCode.getHoursCell(),
+                                String.format(
+                                        "Project Code '%s' under Sub Project '%s' of Project '%s' has incorrect hours. Expected %.2f hours but found %.2f hours.",
+                                        projectCode.getProjectCode(),
+                                        projectCode.getSubProjectName(),
+                                        projectCode.getProjectName(),
+                                        expectedHours,
+                                        actualHours
+                                )));
+                }
         }
-    }
 
-    log.info("Completed Project Code validation.");
-}
+        log.info("Completed Project Code validation.");
+        }
 
 
 

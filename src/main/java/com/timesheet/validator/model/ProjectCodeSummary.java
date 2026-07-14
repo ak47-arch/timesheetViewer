@@ -12,8 +12,8 @@ import java.util.Objects;
  * Project Code : 529NF.40.02
  * Hours        : 1226
  *
- * excelRow stores the original row number in the Project-wise sheet
- * and is used to generate ValidationIssue entries against the correct row.
+ * hoursCell stores the original cell reference in the Project-wise sheet
+ * and is used to generate ValidationIssue entries against the correct cell.
  */
 public final class ProjectCodeSummary {
 
@@ -21,18 +21,20 @@ public final class ProjectCodeSummary {
     private final String subProjectName;
     private final String projectCode;
     private final double hours;
-    private final int excelRow;
+    private final CellReference hoursCell;
 
-    public ProjectCodeSummary(String projectName,
-                              String subProjectName,
-                              String projectCode,
-                              double hours,
-                              int excelRow) {
+    public ProjectCodeSummary(
+            String projectName,
+            String subProjectName,
+            String projectCode,
+            double hours,
+            CellReference hoursCell) {
+
         this.projectName = projectName;
         this.subProjectName = subProjectName;
         this.projectCode = projectCode;
         this.hours = hours;
-        this.excelRow = excelRow;
+        this.hoursCell = hoursCell;
     }
 
     public String getProjectName() {
@@ -51,8 +53,8 @@ public final class ProjectCodeSummary {
         return hours;
     }
 
-    public int getExcelRow() {
-        return excelRow;
+    public CellReference getHoursCell() {
+        return hoursCell;
     }
 
     @Override
@@ -85,7 +87,7 @@ public final class ProjectCodeSummary {
                 ", subProjectName='" + subProjectName + '\'' +
                 ", projectCode='" + projectCode + '\'' +
                 ", hours=" + hours +
-                ", excelRow=" + excelRow +
+                ", hoursCell=" + hoursCell +
                 '}';
     }
 }
