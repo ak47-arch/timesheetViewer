@@ -8,4 +8,7 @@ public class Resource {
     @Column(name="DAILY_RATE_USD") private BigDecimal dailyRateUsd;
     @Column(name="START_DATE") private LocalDate startDate;
     @Column(name="END_DATE") private LocalDate endDate;
+
+    @Column(name = "WORKING_HOURS_PER_DAY")
+    private Double workingHoursPerDay;
 }

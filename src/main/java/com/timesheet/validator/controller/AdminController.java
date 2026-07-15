@@ -1,5 +1,6 @@
 package com.timesheet.validator.controller;
 
+import com.timesheet.validator.config.AppProperties;
 import com.timesheet.validator.domain.*;
 import com.timesheet.validator.config.RuleCatalog;
 import com.timesheet.validator.repository.*;
@@ -30,6 +31,7 @@ public class AdminController {
     private final RoleRepository         roleRepo;
     private final PasswordEncoder        passwordEncoder;
     private final RuleCatalog            ruleCatalog;
+    private final AppProperties props;
 
     // ══════════════════════════════════════════════════════════════════════════
     // VALIDATION RULES (enable / disable from DB)
@@ -162,12 +164,18 @@ public class AdminController {
             @RequestParam String resourceId,
             @RequestParam String name,
             @RequestParam(required = false) String dailyRateUsd,
+            @RequestParam(required = false) Double workingHoursPerDay,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             RedirectAttributes ra) {
         Resource r = id != null ? resourceRepo.findById(id).orElse(new Resource()) : new Resource();
         r.setResourceId(resourceId.trim());
         r.setName(name.trim());
+        r.setWorkingHoursPerDay(
+                workingHoursPerDay != null
+                        ? workingHoursPerDay
+                        : props.getDefaultWorkingHoursPerDay()
+        );
         if (dailyRateUsd != null && !dailyRateUsd.isBlank()) {
             try { r.setDailyRateUsd(new BigDecimal(dailyRateUsd.trim())); }
             catch (NumberFormatException ignored) {}
