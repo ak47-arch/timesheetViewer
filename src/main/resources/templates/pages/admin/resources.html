@@ -20,7 +20,7 @@
         <div class="card-body p-0">
             <table class="data-table">
                 <thead>
-                <tr><th>Resource ID</th><th>Name</th><th>Daily Rate (USD)</th>
+                <tr><th>Resource ID</th><th>Name</th><th>Daily Rate (USD)</th> <th>Working Hours</th>
                     <th>Start Date</th><th>End Date</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
@@ -28,6 +28,7 @@
                     <td><span class="badge badge-blue" th:text="${r.resourceId}"></span></td>
                     <td><strong th:text="${r.name}"></strong></td>
                     <td th:text="${r.dailyRateUsd != null ? '$' + r.dailyRateUsd : '—'}"></td>
+                    <td th:text="${r.workingHoursPerDay}"></td>
                     <td th:text="${r.startDate}">—</td>
                     <td th:text="${r.endDate}">—</td>
                     <td class="action-cell">

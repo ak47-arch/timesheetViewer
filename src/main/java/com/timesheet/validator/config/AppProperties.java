@@ -20,6 +20,7 @@ public class AppProperties {
     private List<SowProps> sows = new ArrayList<>();
 
     private List<HolidayProps>  holidays  = new ArrayList<>();
+    private Double defaultWorkingHoursPerDay = 8.0;
     private List<ResourceProps> resources = new ArrayList<>();
     private ValidationProps     validation = new ValidationProps();
 
@@ -50,7 +51,6 @@ public class AppProperties {
         private String     resourceId;
         private String     name;
         private BigDecimal dailyRateUsd;
-        private Double workingHoursPerDay = 8.0;
         private String     startDate;
         private String     endDate;
     }
@@ -58,6 +58,7 @@ public class AppProperties {
     @Data
     public static class ValidationProps {
         private double  maxHoursPerDay       = 8.0;
+//        private double defaultWorkingHoursPerDay = 8.0;
         private boolean allowWeekendOverride = false;
         /** Default SOW used when no selection is made */
         private String  expectedSow          = "SOW_18_2026";

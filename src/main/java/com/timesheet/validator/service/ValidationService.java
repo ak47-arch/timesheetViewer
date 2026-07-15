@@ -59,6 +59,8 @@ public class ValidationService {
     
     private final ProjectWiseParser projectWiseParser;
 
+    private final ResourceRepository resourceRepo;
+
     //additon of new code
     private Map<String, Integer> pivotEmployeeRows =
             new HashMap<>();
@@ -78,7 +80,7 @@ public class ValidationService {
     private final AppProperties props;
     private final CellDataRepository cellRepo;
     private final PublicHolidayRepository holidayRepo;
-    private final ResourceRepository resourceRepo;
+//    private final ResourceRepository resourceRepo;
     private final ValidationIssueRepository issueRepo;
     private final UploadSessionRepository sessionRepo;
     private final RuleCatalog ruleCatalog;
@@ -567,10 +569,24 @@ public class ValidationService {
 
 
             //PS-06
+
             Map<String, Double> pivotDays =
                     extractPivotEmployeeDays(pivotCells);
 
-            log.info("PIVOT DAYS = {}", pivotDays);
+            Map<String, Double> workingHoursMap =
+                    resourceRepo.findAll()
+                            .stream()
+                            .collect(Collectors.toMap(
+                                    r -> normalizeName(r.getName()),
+                                    r -> r.getWorkingHoursPerDay() != null
+                                            ? r.getWorkingHoursPerDay()
+                                            : props.getDefaultWorkingHoursPerDay()
+                            ));
+
+
+
+
+//            log.info("PIVOT DAYS = {}", pivotDays);
 
 
             for (Map.Entry<String, Double> entry
@@ -590,7 +606,10 @@ public class ValidationService {
                 }
 
                 double workingHoursPerDay =
-                        getWorkingHoursPerDay(employee);
+                        workingHoursMap.getOrDefault(
+                                employee,
+                                props.getDefaultWorkingHoursPerDay()
+                        );
 
                 double expectedDays =
                         totalHours / workingHoursPerDay;
@@ -1021,20 +1040,18 @@ public class ValidationService {
                 .replaceAll("\\s+", " ");
     }
 
-    private double getWorkingHoursPerDay(String employeeName) {
-
-        String normalizedEmployee = normalizeName(employeeName);
-
-        return props.getResources()
-                .stream()
-                .filter(r ->
-                        normalizeName(r.getName())
-                                .equals(normalizedEmployee))
-                .map(AppProperties.ResourceProps::getWorkingHoursPerDay)
-                .filter(Objects::nonNull)
-                .findFirst()
-                .orElse(8.0);
-    }
+//    private double getWorkingHoursPerDay(String employeeName) {
+//
+//        String normalized = normalizeName(employeeName);
+//
+//        return resourceRepo.findAll()
+//                .stream()
+//                .filter(r -> normalizeName(r.getName()).equals(normalized))
+//                .map(Resource::getWorkingHoursPerDay)
+//                .filter(Objects::nonNull)
+//                .findFirst()
+//                .orElse(props.getDefaultWorkingHoursPerDay());
+//    }
 
 
     private Set<String> extractTimesheetEmployees(

@@ -62,13 +62,23 @@ public class MasterDataLoader implements ApplicationRunner {
 
     private void seedResources() {
         resourceRepo.deleteAllInBatch();
-        resourceRepo.saveAll(props.getResources().stream()
-            .map(r -> Resource.builder()
-                .resourceId(r.getResourceId()).name(r.getName())
-                .dailyRateUsd(r.getDailyRateUsd())
-                .startDate(parse(r.getStartDate()))
-                .endDate(parse(r.getEndDate())).build())
-            .collect(Collectors.toList()));
+
+        resourceRepo.saveAll(
+                props.getResources()
+                        .stream()
+                        .map(r -> Resource.builder()
+                                .resourceId(r.getResourceId())
+                                .name(r.getName())
+                                .dailyRateUsd(r.getDailyRateUsd())
+                                .startDate(parse(r.getStartDate()))
+                                .endDate(parse(r.getEndDate()))
+                                .workingHoursPerDay(
+                                        props.getDefaultWorkingHoursPerDay()
+                                )
+                                .build())
+                        .collect(Collectors.toList())
+        );
+
         log.info("[Loader] Resources: {}", resourceRepo.count());
     }
 
