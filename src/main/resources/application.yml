@@ -75,7 +75,7 @@ app:
         description: "Project total hours match validated Timesheet"
         severity: CRITICAL
         enabled: true
-        always-on: false
+        always-on: true
         sort-order: 15
 
       - rule-id: PW-002
@@ -83,7 +83,7 @@ app:
         description: "Sub Project total hours match validated Timesheet"
         severity: CRITICAL
         enabled: true
-        always-on: false
+        always-on: true
         sort-order: 16
 
       - rule-id: PW-003
@@ -91,7 +91,7 @@ app:
         description: "Project Code total hours match validated Timesheet"
         severity: CRITICAL
         enabled: true
-        always-on: false
+        always-on: true
         sort-order: 17
 
   master:
