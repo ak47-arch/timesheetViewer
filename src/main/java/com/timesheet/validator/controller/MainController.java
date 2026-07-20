@@ -152,9 +152,20 @@ public class MainController {
         // ── Phased validation state ──────────────────────────────────────────
         String phase = session.getValidationPhase() == null ? "TIMESHEET"
                 : session.getValidationPhase();
-        boolean pivotUnlocked = "PIVOT".equalsIgnoreCase(phase) || "PROJECT_WISE".equalsIgnoreCase(phase);
-
-        boolean projectWiseUnlocked = "PROJECT_WISE".equalsIgnoreCase(phase); 
+        // Once a phase is unlocked it stays accessible in all subsequent phases
+        boolean pivotUnlocked = switch (phase.toUpperCase()) {
+            case "PIVOT", "PROJECT_WISE", "SUMMARY", "COMMERCIAL" -> true;
+            default -> false;
+        };
+        boolean projectWiseUnlocked = switch (phase.toUpperCase()) {
+            case "PROJECT_WISE", "SUMMARY", "COMMERCIAL" -> true;
+            default -> false;
+        };
+        boolean summaryUnlocked = switch (phase.toUpperCase()) {
+            case "SUMMARY", "COMMERCIAL" -> true;
+            default -> false;
+        };
+        boolean commercialUnlocked = "COMMERCIAL".equalsIgnoreCase(phase);
         long timesheetErrors = issueRepo
                 .countBySessionIdAndSheetNameAndSeverity(sessionId, "Timesheet", "CRITICAL");
         int pivotTabIndex = metas.stream()
@@ -180,8 +191,41 @@ public class MainController {
         model.addAttribute("pivotErrors", pivotErrors);
         model.addAttribute("timesheetErrors",     timesheetErrors);
         model.addAttribute("pivotTabIndex",       pivotTabIndex);
+        long projectWiseErrors =
+        issueRepo.countBySessionIdAndSheetNameAndSeverity(
+                sessionId,
+                "Projectwise",
+                "CRITICAL");
+
         model.addAttribute("projectWiseUnlocked", projectWiseUnlocked);
         model.addAttribute("projectWiseTabIndex", projectWiseTabIndex);
+        model.addAttribute("projectWiseErrors", projectWiseErrors);
+
+        long summaryErrors =
+                issueRepo.countBySessionIdAndSheetNameAndSeverity(
+                        sessionId,
+                        "Summary",
+                        "CRITICAL");
+
+        int summaryTabIndex = metas.stream()
+                .filter(m -> "Summary".equalsIgnoreCase(m.getSheetName()))
+                .map(m -> m.getSheetIndex())
+                .filter(x -> x != null)
+                .findFirst()
+                .orElse(-1);
+
+        int commercialTabIndex = metas.stream()
+                .filter(m -> "Commercial".equalsIgnoreCase(m.getSheetName()))
+                .map(m -> m.getSheetIndex())
+                .filter(x -> x != null)
+                .findFirst()
+                .orElse(-1);
+
+        model.addAttribute("summaryUnlocked", summaryUnlocked);
+        model.addAttribute("commercialUnlocked", commercialUnlocked);
+        model.addAttribute("summaryErrors", summaryErrors);
+        model.addAttribute("summaryTabIndex", summaryTabIndex);
+        model.addAttribute("commercialTabIndex", commercialTabIndex);
 
         model.addAttribute("errorCount",    errors);
         model.addAttribute("warningCount",  warnings);
@@ -220,8 +264,7 @@ public class MainController {
         * TIMESHEET  ->  PIVOT
         * ===========================================================
         */
-        if (!"PIVOT".equalsIgnoreCase(phase)
-                && !"PROJECT_WISE".equalsIgnoreCase(phase)) {
+        if ("TIMESHEET".equalsIgnoreCase(phase)) {
 
             long tsErrors = issueRepo.countBySessionIdAndSheetNameAndSeverity(
                     sessionId,
@@ -240,26 +283,21 @@ public class MainController {
             }
 
             session.setValidationPhase("PIVOT");
-
             sessionRepo.save(session);
 
-            ValidationResultDto result =
-                    validator.validate(sessionId);
+            ValidationResultDto result = validator.validate(sessionId);
 
             ra.addFlashAttribute(
                     "success",
                     "Timesheet passed. Pivot validation unlocked — found "
-                            + result.getErrorCount()
-                            + " pivot error(s).");
+                            + result.getErrorCount() + " pivot error(s).");
 
             int pivotTab = sheetView.getSheetMetas(sessionId)
                     .stream()
-                    .filter(m -> "Pivot".equalsIgnoreCase(
-                            m.getSheetName()))
+                    .filter(m -> "Pivot".equalsIgnoreCase(m.getSheetName()))
                     .map(m -> m.getSheetIndex())
                     .filter(java.util.Objects::nonNull)
-                    .findFirst()
-                    .orElse(0);
+                    .findFirst().orElse(0);
 
             return "redirect:/view/" + sessionId + "?tab=" + pivotTab;
         }
@@ -269,47 +307,121 @@ public class MainController {
         * PIVOT  ->  PROJECT_WISE
         * ===========================================================
         */
+        if ("PIVOT".equalsIgnoreCase(phase)) {
 
-        long pivotErrors =
-                issueRepo.countBySessionIdAndSheetNameAndSeverity(
-                        sessionId,
-                        "Pivot",
-                        "CRITICAL");
+            long pivotErrors = issueRepo.countBySessionIdAndSheetNameAndSeverity(
+                    sessionId, "Pivot", "CRITICAL");
 
-        if (pivotErrors > 0) {
+            if (pivotErrors > 0) {
+
+                ra.addFlashAttribute(
+                        "error",
+                        "Cannot proceed to Projectwise validation — resolve "
+                                + pivotErrors + " unresolved Pivot error(s) first.");
+
+                return "redirect:/view/" + sessionId;
+            }
+
+            session.setValidationPhase("PROJECT_WISE");
+            sessionRepo.save(session);
+
+            ValidationResultDto result = validator.validate(sessionId);
 
             ra.addFlashAttribute(
-                    "error",
-                    "Cannot proceed to Projectwise validation — resolve "
-                            + pivotErrors
-                            + " unresolved Pivot error(s) first.");
+                    "success",
+                    "Pivot passed. Projectwise validation unlocked — found "
+                            + result.getErrorCount() + " Projectwise error(s).");
 
-            return "redirect:/view/" + sessionId;
+            int projectWiseTab = sheetView.getSheetMetas(sessionId)
+                    .stream()
+                    .filter(m -> "Projectwise".equalsIgnoreCase(m.getSheetName()))
+                    .map(m -> m.getSheetIndex())
+                    .filter(java.util.Objects::nonNull)
+                    .findFirst().orElse(0);
+
+            return "redirect:/view/" + sessionId + "?tab=" + projectWiseTab;
         }
 
-        session.setValidationPhase("PROJECT_WISE");
+        /*
+        * ===========================================================
+        * PROJECT_WISE  ->  SUMMARY
+        * ===========================================================
+        */
+        if ("PROJECT_WISE".equalsIgnoreCase(phase)) {
 
-        sessionRepo.save(session);
+            long projectWiseErrors = issueRepo.countBySessionIdAndSheetNameAndSeverity(
+                    sessionId, "Projectwise", "CRITICAL");
 
-        ValidationResultDto result =
-                validator.validate(sessionId);
+            if (projectWiseErrors > 0) {
 
-        ra.addFlashAttribute(
-                "success",
-                "Pivot passed. Projectwise validation unlocked — found "
-                        + result.getErrorCount()
-                        + " Projectwise error(s).");
+                ra.addFlashAttribute(
+                        "error",
+                        "Cannot proceed to Summary validation — resolve "
+                                + projectWiseErrors + " unresolved Projectwise error(s) first.");
 
-        int projectWiseTab = sheetView.getSheetMetas(sessionId)
-                .stream()
-                .filter(m -> "Projectwise".equalsIgnoreCase(
-                        m.getSheetName()))
-                .map(m -> m.getSheetIndex())
-                .filter(java.util.Objects::nonNull)
-                .findFirst()
-                .orElse(0);
+                return "redirect:/view/" + sessionId;
+            }
 
-        return "redirect:/view/" + sessionId + "?tab=" + projectWiseTab;
+            session.setValidationPhase("SUMMARY");
+            sessionRepo.save(session);
+
+            ValidationResultDto summaryResult = validator.validate(sessionId);
+
+            ra.addFlashAttribute(
+                    "success",
+                    "Projectwise passed. Summary validation unlocked — found "
+                            + summaryResult.getErrorCount() + " Summary error(s).");
+
+            int summaryTab = sheetView.getSheetMetas(sessionId)
+                    .stream()
+                    .filter(m -> "Summary".equalsIgnoreCase(m.getSheetName()))
+                    .map(m -> m.getSheetIndex())
+                    .filter(java.util.Objects::nonNull)
+                    .findFirst().orElse(0);
+
+            return "redirect:/view/" + sessionId + "?tab=" + summaryTab;
+        }
+
+        /*
+        * ===========================================================
+        * SUMMARY  ->  COMMERCIAL (placeholder)
+        * ===========================================================
+        */
+        if ("SUMMARY".equalsIgnoreCase(phase)) {
+
+            long summaryErrors = issueRepo.countBySessionIdAndSheetNameAndSeverity(
+                    sessionId, "Summary", "CRITICAL");
+
+            if (summaryErrors > 0) {
+
+                ra.addFlashAttribute(
+                        "error",
+                        "Cannot proceed to Commercial validation — resolve "
+                                + summaryErrors + " unresolved Summary error(s) first.");
+
+                return "redirect:/view/" + sessionId;
+            }
+
+            session.setValidationPhase("COMMERCIAL");
+            sessionRepo.save(session);
+
+            ra.addFlashAttribute(
+                    "success",
+                    "Summary passed. Commercial sheet is now accessible.");
+
+            int commercialTab = sheetView.getSheetMetas(sessionId)
+                    .stream()
+                    .filter(m -> "Commercial".equalsIgnoreCase(m.getSheetName()))
+                    .map(m -> m.getSheetIndex())
+                    .filter(java.util.Objects::nonNull)
+                    .findFirst().orElse(0);
+
+            return "redirect:/view/" + sessionId + "?tab=" + commercialTab;
+        }
+
+        // Fallback: should not reach here
+        ra.addFlashAttribute("error", "Unknown validation phase: " + phase);
+        return "redirect:/view/" + sessionId;
     }
 
     // ── Phased validation: go back to the Timesheet phase ─────────────────────
@@ -317,10 +429,19 @@ public class MainController {
     public String resetPhase(@PathVariable String sessionId, RedirectAttributes ra) {
         UploadSession session = sessionRepo.findBySessionId(sessionId)
                 .orElseThrow(() -> new RuntimeException("Session not found"));
-        session.setValidationPhase("TIMESHEET");
+        String currentPhase = session.getValidationPhase();
+        if ("SUMMARY".equalsIgnoreCase(currentPhase)) {
+            session.setValidationPhase("PROJECT_WISE");
+        } else if ("COMMERCIAL".equalsIgnoreCase(currentPhase)) {
+            session.setValidationPhase("SUMMARY");
+        } else if ("PROJECT_WISE".equalsIgnoreCase(currentPhase)) {
+            session.setValidationPhase("PIVOT");
+        } else {
+            session.setValidationPhase("TIMESHEET");
+        }
         sessionRepo.save(session);
         validator.validate(sessionId);
-        ra.addFlashAttribute("success", "Back to Timesheet validation.");
+        ra.addFlashAttribute("success", "Phase reset.");
         return "redirect:/view/" + sessionId;
     }
 

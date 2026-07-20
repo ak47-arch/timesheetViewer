@@ -94,6 +94,71 @@ app:
         always-on: true
         sort-order: 17
 
+      # ── Summary sheet (always-on reconciliation checks) ────────────────
+      - rule-id: SM-01
+        sheet: Summary
+        description: "SOW No + Description cross-ref against SOW_MASTER"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 18
+
+      - rule-id: SM-02
+        sheet: Summary
+        description: "Employee Name cross-ref against RESOURCE + RESOURCE_SOW"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 19
+
+      - rule-id: SM-03
+        sheet: Summary
+        description: "Daily Rate cross-ref against RESOURCE.DAILY_RATE_USD"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 20
+
+      - rule-id: SM-04
+        sheet: Summary
+        description: "Billing Period cross-ref against RESOURCE.START_DATE / END_DATE"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 21
+
+      - rule-id: SM-05
+        sheet: Summary
+        description: "PO Number cross-ref against SOW_MASTER.PO_NUMBER"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 22
+
+      - rule-id: SM-07
+        sheet: Summary
+        description: "Working Days three-way reconciliation (Timesheet/Pivot/Summary)"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 23
+
+      - rule-id: SM-08
+        sheet: Summary
+        description: "Travel Expense sanity check"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 24
+
+      - rule-id: SM-09
+        sheet: Summary
+        description: "Total Amount formula validation"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 25
+
   master:
 
     default-working-hours-per-day: 8.0
@@ -113,7 +178,7 @@ app:
         poNumber: '3429004068'
         poValue: 7000000
         client: IGT
-        description: XYZ SoftDev Development Services
+        description: Sydney SoftDev Development Services
         startDate: "2026-01-01"
         endDate: "2026-12-31"
         active: true
@@ -180,96 +245,115 @@ app:
       - resourceId: RES-001
         name: AKK
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2027-03-31"
       - resourceId: RES-002
         name: Amit Bhattacharjee
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-13"
       - resourceId: RES-003
         name: Anupam Khatiwada
         dailyRateUsd: 200
+        workingHoursPerDay: 4
         startDate: "2026-03-01"
         endDate: "2027-03-31"
       - resourceId: RES-004
         name: AS
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-005
         name: BK
         dailyRateUsd: 180
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-006
         name: HK
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-007
         name: Harpreet Singh Gulati
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-008
         name: Kashish Sahu
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-009
         name: MH
         dailyRateUsd: 180
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-010
         name: NM
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-011
         name: NN
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-012
         name: RSG
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-013
         name: Shubham Khojare
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-014
         name: SM
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-015
         name: SG
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-016
         name: SK2
         dailyRateUsd: 180
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-017
         name: TS
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-018
         name: Umesh Singh Kalakoti
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-16"
         endDate: "2026-03-31"
 #      - resourceId: RES-019
 #        name: Tarundeep Sharma
 #        dailyRateUsd: 200
+#        workingHoursPerDay: 8
 #        startDate: "2026-03-01"
 #        endDate: "2026-03-31"
 

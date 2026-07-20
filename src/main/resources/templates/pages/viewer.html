@@ -364,20 +364,72 @@
 
         <!-- Step 3 -->
         <div class="phase-step"
-            th:classappend="${projectWiseUnlocked} ? ' active' : ' locked'">
+            th:classappend="${summaryUnlocked} ? ' done' :
+                            (${projectWiseUnlocked} ? ' active' : ' locked')">
 
             <span class="phase-num">
+
+                <i th:if="${summaryUnlocked}"
+                class="fa fa-check"></i>
 
                 <i th:if="${!projectWiseUnlocked}"
                 class="fa fa-lock"></i>
 
-                <span th:if="${projectWiseUnlocked}">
+                <span th:if="${projectWiseUnlocked and !summaryUnlocked}">
                     3
                 </span>
 
             </span>
 
             <span>Projectwise validation</span>
+
+        </div>
+
+        <div class="phase-connector"
+            th:classappend="${summaryUnlocked} ? ' done' : ''"></div>
+
+        <!-- Step 4 -->
+        <div class="phase-step"
+            th:classappend="${commercialUnlocked} ? ' done' :
+                            (${summaryUnlocked} ? ' active' : ' locked')">
+
+            <span class="phase-num">
+
+                <i th:if="${commercialUnlocked}"
+                class="fa fa-check"></i>
+
+                <i th:if="${!summaryUnlocked}"
+                class="fa fa-lock"></i>
+
+                <span th:if="${summaryUnlocked and !commercialUnlocked}">
+                    4
+                </span>
+
+            </span>
+
+            <span>Summary validation</span>
+
+        </div>
+
+        <div class="phase-connector"
+            th:classappend="${commercialUnlocked} ? ' done' : ''"></div>
+
+        <!-- Step 5 (placeholder) -->
+        <div class="phase-step"
+            th:classappend="${commercialUnlocked} ? ' active' : ' locked'">
+
+            <span class="phase-num">
+
+                <i th:if="${!commercialUnlocked}"
+                class="fa fa-lock"></i>
+
+                <span th:if="${commercialUnlocked}">
+                    5
+                </span>
+
+            </span>
+
+            <span>Commercial validation</span>
 
         </div>
 
@@ -479,7 +531,34 @@
             <!-- ========================= -->
             <!-- PROJECTWISE PHASE -->
             <!-- ========================= -->
-            <span th:if="${projectWiseUnlocked}">
+            <span th:if="${projectWiseUnlocked and !summaryUnlocked}">
+
+                <span th:if="${projectWiseErrors > 0}" class="phase-hint">
+                    <i class="fa fa-triangle-exclamation"></i>
+                    Resolve
+                    <b th:text="${projectWiseErrors}">0</b>
+                    Project Wise error(s), then re-validate.
+                </span>
+
+                <span th:if="${projectWiseErrors == 0}" class="phase-hint ok">
+                    <i class="fa fa-circle-check"></i>
+                    Projectwise validation completed.
+                </span>
+
+                <form th:action="@{/view/{id}/advance(id=${uploadSession.sessionId})}"
+                    method="post"
+                    style="display:inline">
+
+                    <button class="btn btn-primary"
+                            type="submit"
+                            th:disabled="${projectWiseErrors > 0}">
+
+                        Proceed to Summary
+                        <i class="fa fa-arrow-right"></i>
+
+                    </button>
+
+                </form>
 
                 <form th:action="@{/view/{id}/reset-phase(id=${uploadSession.sessionId})}"
                     method="post"
@@ -491,6 +570,82 @@
                         <i class="fa fa-arrow-left"></i>
 
                         Back to Pivot
+
+                    </button>
+
+                </form>
+
+            </span>
+
+            <!-- ========================= -->
+            <!-- SUMMARY PHASE -->
+            <!-- ========================= -->
+            <span th:if="${summaryUnlocked and !commercialUnlocked}">
+
+                <span th:if="${summaryErrors > 0}" class="phase-hint">
+                    <i class="fa fa-triangle-exclamation"></i>
+                    Resolve
+                    <b th:text="${summaryErrors}">0</b>
+                    Summary error(s), then re-validate.
+                </span>
+
+                <span th:if="${summaryErrors == 0}" class="phase-hint ok">
+                    <i class="fa fa-circle-check"></i>
+                    Summary validation completed.
+                </span>
+
+                <form th:action="@{/view/{id}/advance(id=${uploadSession.sessionId})}"
+                    method="post"
+                    style="display:inline">
+
+                    <button class="btn btn-primary"
+                            type="submit"
+                            th:disabled="${summaryErrors > 0}">
+
+                        Proceed to Commercial
+                        <i class="fa fa-arrow-right"></i>
+
+                    </button>
+
+                </form>
+
+                <form th:action="@{/view/{id}/reset-phase(id=${uploadSession.sessionId})}"
+                    method="post"
+                    style="display:inline">
+
+                    <button class="btn btn-secondary"
+                            type="submit">
+
+                        <i class="fa fa-arrow-left"></i>
+
+                        Back to Projectwise
+
+                    </button>
+
+                </form>
+
+            </span>
+
+            <!-- ========================= -->
+            <!-- COMMERCIAL PHASE (placeholder) -->
+            <!-- ========================= -->
+            <span th:if="${commercialUnlocked}">
+
+                <span class="phase-hint ok">
+                    <i class="fa fa-circle-check"></i>
+                    All validations completed.
+                </span>
+
+                <form th:action="@{/view/{id}/reset-phase(id=${uploadSession.sessionId})}"
+                    method="post"
+                    style="display:inline">
+
+                    <button class="btn btn-secondary"
+                            type="submit">
+
+                        <i class="fa fa-arrow-left"></i>
+
+                        Back to Summary
 
                     </button>
 
@@ -510,7 +665,9 @@
                     th:with="
                         pivotLocked=${#strings.equalsIgnoreCase(meta.sheetName,'Pivot') and !pivotUnlocked},
                         projectWiseLocked=${#strings.equalsIgnoreCase(meta.sheetName,'Projectwise') and !projectWiseUnlocked},
-                        locked=${pivotLocked or projectWiseLocked}
+                        summaryLocked=${#strings.equalsIgnoreCase(meta.sheetName,'Summary') and !summaryUnlocked},
+                        commercialLocked=${#strings.equalsIgnoreCase(meta.sheetName,'Commercial') and !commercialUnlocked},
+                        locked=${pivotLocked or projectWiseLocked or summaryLocked or commercialLocked}
                     "
 
                     th:class="${iStat.index == activeTab} ? 'sheet-tab active' : 'sheet-tab'"

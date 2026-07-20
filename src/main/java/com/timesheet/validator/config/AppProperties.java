@@ -51,6 +51,7 @@ public class AppProperties {
         private String     resourceId;
         private String     name;
         private BigDecimal dailyRateUsd;
+        private Double     workingHoursPerDay;
         private String     startDate;
         private String     endDate;
     }
