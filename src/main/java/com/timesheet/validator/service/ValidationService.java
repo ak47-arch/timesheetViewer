@@ -19,6 +19,7 @@ import com.timesheet.validator.service.ProjectWiseParser;
 import com.timesheet.validator.model.ProjectCodeSummary;
 import com.timesheet.validator.repository.CellDataRepository;
 import com.timesheet.validator.repository.PublicHolidayRepository;
+import com.timesheet.validator.domain.Resource;
 import com.timesheet.validator.repository.ResourceRepository;
 import com.timesheet.validator.repository.ResourceSowRepository;
 import com.timesheet.validator.repository.SowMasterRepository;
@@ -83,7 +84,6 @@ public class ValidationService {
     private final AppProperties props;
     private final CellDataRepository cellRepo;
     private final PublicHolidayRepository holidayRepo;
-    private final ResourceRepository resourceRepo;
     private final ResourceSowRepository resourceSowRepo;
     private final SowMasterRepository sowMasterRepo;
     private final ValidationIssueRepository issueRepo;
@@ -1071,18 +1071,17 @@ public class ValidationService {
                 .replaceAll("\\s+", " ");
     }
 
-//    private double getWorkingHoursPerDay(String employeeName) {
-//
-//        String normalized = normalizeName(employeeName);
-//
-//        return resourceRepo.findAll()
-//                .stream()
-//                .filter(r -> normalizeName(r.getName()).equals(normalized))
-//                .map(Resource::getWorkingHoursPerDay)
-//                .filter(Objects::nonNull)
-//                .findFirst()
-//                .orElse(props.getDefaultWorkingHoursPerDay());
-//    }
+    private double getWorkingHoursPerDay(String employeeName) {
+
+        return resourceRepo.findAll()
+                .stream()
+                .filter(r -> normalizeName(r.getName())
+                        .equals(normalizeName(employeeName)))
+                .map(Resource::getWorkingHoursPerDay)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(props.getDefaultWorkingHoursPerDay());
+    }
 
 
     private Set<String> extractTimesheetEmployees(

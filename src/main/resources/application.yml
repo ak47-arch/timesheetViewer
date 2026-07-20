@@ -245,96 +245,115 @@ app:
       - resourceId: RES-001
         name: AKK
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2027-03-31"
       - resourceId: RES-002
         name: Amit Bhattacharjee
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-13"
       - resourceId: RES-003
         name: Anupam Khatiwada
         dailyRateUsd: 200
+        workingHoursPerDay: 4
         startDate: "2026-03-01"
         endDate: "2027-03-31"
       - resourceId: RES-004
         name: AS
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-005
         name: BK
         dailyRateUsd: 180
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-006
         name: HK
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-007
         name: Harpreet Singh Gulati
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-008
         name: Kashish Sahu
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-009
         name: MH
         dailyRateUsd: 180
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-010
         name: NM
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-011
         name: NN
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-012
         name: RSG
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-013
         name: Shubham Khojare
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-014
         name: SM
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-015
         name: SG
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-016
         name: SK2
         dailyRateUsd: 180
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-017
         name: TS
         dailyRateUsd: 150
+        workingHoursPerDay: 8
         startDate: "2026-03-01"
         endDate: "2026-03-31"
       - resourceId: RES-018
         name: Umesh Singh Kalakoti
         dailyRateUsd: 200
+        workingHoursPerDay: 8
         startDate: "2026-03-16"
         endDate: "2026-03-31"
 #      - resourceId: RES-019
 #        name: Tarundeep Sharma
 #        dailyRateUsd: 200
+#        workingHoursPerDay: 8
 #        startDate: "2026-03-01"
 #        endDate: "2026-03-31"
 
