@@ -94,6 +94,71 @@ app:
         always-on: true
         sort-order: 17
 
+      # ── Summary sheet (always-on reconciliation checks) ────────────────
+      - rule-id: SM-01
+        sheet: Summary
+        description: "SOW No + Description cross-ref against SOW_MASTER"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 18
+
+      - rule-id: SM-02
+        sheet: Summary
+        description: "Employee Name cross-ref against RESOURCE + RESOURCE_SOW"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 19
+
+      - rule-id: SM-03
+        sheet: Summary
+        description: "Daily Rate cross-ref against RESOURCE.DAILY_RATE_USD"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 20
+
+      - rule-id: SM-04
+        sheet: Summary
+        description: "Billing Period cross-ref against RESOURCE.START_DATE / END_DATE"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 21
+
+      - rule-id: SM-05
+        sheet: Summary
+        description: "PO Number cross-ref against SOW_MASTER.PO_NUMBER"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 22
+
+      - rule-id: SM-07
+        sheet: Summary
+        description: "Working Days three-way reconciliation (Timesheet/Pivot/Summary)"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 23
+
+      - rule-id: SM-08
+        sheet: Summary
+        description: "Travel Expense sanity check"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 24
+
+      - rule-id: SM-09
+        sheet: Summary
+        description: "Total Amount formula validation"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 25
+
   master:
 
     default-working-hours-per-day: 8.0
