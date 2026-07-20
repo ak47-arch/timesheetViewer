@@ -152,10 +152,19 @@ public class MainController {
         // ── Phased validation state ──────────────────────────────────────────
         String phase = session.getValidationPhase() == null ? "TIMESHEET"
                 : session.getValidationPhase();
-        boolean pivotUnlocked = "PIVOT".equalsIgnoreCase(phase) || "PROJECT_WISE".equalsIgnoreCase(phase);
-
-        boolean projectWiseUnlocked = "PROJECT_WISE".equalsIgnoreCase(phase);
-        boolean summaryUnlocked = "SUMMARY".equalsIgnoreCase(phase);
+        // Once a phase is unlocked it stays accessible in all subsequent phases
+        boolean pivotUnlocked = switch (phase.toUpperCase()) {
+            case "PIVOT", "PROJECT_WISE", "SUMMARY", "COMMERCIAL" -> true;
+            default -> false;
+        };
+        boolean projectWiseUnlocked = switch (phase.toUpperCase()) {
+            case "PROJECT_WISE", "SUMMARY", "COMMERCIAL" -> true;
+            default -> false;
+        };
+        boolean summaryUnlocked = switch (phase.toUpperCase()) {
+            case "SUMMARY", "COMMERCIAL" -> true;
+            default -> false;
+        };
         boolean commercialUnlocked = "COMMERCIAL".equalsIgnoreCase(phase);
         long timesheetErrors = issueRepo
                 .countBySessionIdAndSheetNameAndSeverity(sessionId, "Timesheet", "CRITICAL");
@@ -425,12 +434,14 @@ public class MainController {
             session.setValidationPhase("PROJECT_WISE");
         } else if ("COMMERCIAL".equalsIgnoreCase(currentPhase)) {
             session.setValidationPhase("SUMMARY");
+        } else if ("PROJECT_WISE".equalsIgnoreCase(currentPhase)) {
+            session.setValidationPhase("PIVOT");
         } else {
             session.setValidationPhase("TIMESHEET");
         }
         sessionRepo.save(session);
         validator.validate(sessionId);
-        ra.addFlashAttribute("success", "Back to Timesheet validation.");
+        ra.addFlashAttribute("success", "Phase reset.");
         return "redirect:/view/" + sessionId;
     }
 
