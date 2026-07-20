@@ -178,7 +178,7 @@ app:
         poNumber: '3429004068'
         poValue: 7000000
         client: IGT
-        description: XYZ SoftDev Development Services
+        description: Sydney SoftDev Development Services
         startDate: "2026-01-01"
         endDate: "2026-12-31"
         active: true
