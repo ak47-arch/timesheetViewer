@@ -414,16 +414,19 @@
         <div class="phase-connector"
             th:classappend="${commercialUnlocked} ? ' done' : ''"></div>
 
-        <!-- Step 5 (placeholder) -->
+        <!-- Step 5 -->
         <div class="phase-step"
-            th:classappend="${commercialUnlocked} ? ' active' : ' locked'">
+            th:classappend="${commercialUnlocked} ? (${commercialErrors == 0} ? ' done' : ' active') : ' locked'">
 
             <span class="phase-num">
+
+                <i th:if="${commercialUnlocked and commercialErrors == 0}"
+                class="fa fa-check"></i>
 
                 <i th:if="${!commercialUnlocked}"
                 class="fa fa-lock"></i>
 
-                <span th:if="${commercialUnlocked}">
+                <span th:if="${commercialUnlocked and commercialErrors > 0}">
                     5
                 </span>
 
@@ -627,13 +630,20 @@
             </span>
 
             <!-- ========================= -->
-            <!-- COMMERCIAL PHASE (placeholder) -->
+            <!-- COMMERCIAL PHASE -->
             <!-- ========================= -->
             <span th:if="${commercialUnlocked}">
 
-                <span class="phase-hint ok">
+                <span th:if="${commercialErrors > 0}" class="phase-hint">
+                    <i class="fa fa-triangle-exclamation"></i>
+                    Resolve
+                    <b th:text="${commercialErrors}">0</b>
+                    Commercial error(s), then re-validate.
+                </span>
+
+                <span th:if="${commercialErrors == 0}" class="phase-hint ok">
                     <i class="fa fa-circle-check"></i>
-                    All validations completed.
+                    Commercial validation completed successfully.
                 </span>
 
                 <form th:action="@{/view/{id}/reset-phase(id=${uploadSession.sessionId})}"

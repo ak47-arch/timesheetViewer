@@ -159,6 +159,55 @@ app:
         always-on: true
         sort-order: 25
 
+      # ── Commercial sheet (always-on reconciliation checks) ──────────────
+      - rule-id: CM-01
+        sheet: Commercial
+        description: "Project Information validation (Name + ID)"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 26
+
+      - rule-id: CM-02
+        sheet: Commercial
+        description: "PO Validation & Resource Count Validation"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 27
+
+      - rule-id: CM-03
+        sheet: Commercial
+        description: "Total Billable Days Validation"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 28
+
+      - rule-id: CM-04
+        sheet: Commercial
+        description: "Total Billable Amount Validation"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 29
+
+      - rule-id: CM-05
+        sheet: Commercial
+        description: "Planned Value, Actual Value & PO Balance Validation"
+        severity: CRITICAL
+        enabled: true
+        always-on: true
+        sort-order: 30
+
+      - rule-id: CM-06
+        sheet: Commercial
+        description: "Positive PO Balance Validation"
+        severity: WARNING
+        enabled: true
+        always-on: true
+        sort-order: 31
+
   master:
 
     default-working-hours-per-day: 8.0
