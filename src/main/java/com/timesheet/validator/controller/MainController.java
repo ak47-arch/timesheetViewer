@@ -207,6 +207,12 @@ public class MainController {
                         "Summary",
                         "CRITICAL");
 
+        long commercialErrors =
+                issueRepo.countBySessionIdAndSheetNameAndSeverity(
+                        sessionId,
+                        "Commercial",
+                        "CRITICAL");
+
         int summaryTabIndex = metas.stream()
                 .filter(m -> "Summary".equalsIgnoreCase(m.getSheetName()))
                 .map(m -> m.getSheetIndex())
@@ -224,6 +230,7 @@ public class MainController {
         model.addAttribute("summaryUnlocked", summaryUnlocked);
         model.addAttribute("commercialUnlocked", commercialUnlocked);
         model.addAttribute("summaryErrors", summaryErrors);
+        model.addAttribute("commercialErrors", commercialErrors);
         model.addAttribute("summaryTabIndex", summaryTabIndex);
         model.addAttribute("commercialTabIndex", commercialTabIndex);
 
@@ -384,7 +391,7 @@ public class MainController {
 
         /*
         * ===========================================================
-        * SUMMARY  ->  COMMERCIAL (placeholder)
+        * SUMMARY  ->  COMMERCIAL
         * ===========================================================
         */
         if ("SUMMARY".equalsIgnoreCase(phase)) {
@@ -405,9 +412,12 @@ public class MainController {
             session.setValidationPhase("COMMERCIAL");
             sessionRepo.save(session);
 
+            ValidationResultDto commercialResult = validator.validate(sessionId);
+
             ra.addFlashAttribute(
                     "success",
-                    "Summary passed. Commercial sheet is now accessible.");
+                    "Summary passed. Commercial validation unlocked — found "
+                            + commercialResult.getErrorCount() + " Commercial error(s).");
 
             int commercialTab = sheetView.getSheetMetas(sessionId)
                     .stream()
