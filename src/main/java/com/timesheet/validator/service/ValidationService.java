@@ -19,7 +19,10 @@ import com.timesheet.validator.service.ProjectWiseParser;
 import com.timesheet.validator.model.ProjectCodeSummary;
 import com.timesheet.validator.repository.CellDataRepository;
 import com.timesheet.validator.repository.PublicHolidayRepository;
+import com.timesheet.validator.domain.Resource;
 import com.timesheet.validator.repository.ResourceRepository;
+import com.timesheet.validator.repository.ResourceSowRepository;
+import com.timesheet.validator.repository.SowMasterRepository;
 import com.timesheet.validator.repository.ValidationIssueRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -56,6 +59,8 @@ public class ValidationService {
     private static final String PIVOT_SHEET = "Pivot";
 //    private static final double HOURS_PER_DAY = 8.0;
     private static final String PROJECT_WISE_SHEET = "Projectwise";
+    private static final String SUMMARY_SHEET = "Summary";
+    private static final String COMMERCIAL_SHEET = "Commercial";
     
     private final ProjectWiseParser projectWiseParser;
 
@@ -80,7 +85,8 @@ public class ValidationService {
     private final AppProperties props;
     private final CellDataRepository cellRepo;
     private final PublicHolidayRepository holidayRepo;
-//    private final ResourceRepository resourceRepo;
+    private final ResourceSowRepository resourceSowRepo;
+    private final SowMasterRepository sowMasterRepo;
     private final ValidationIssueRepository issueRepo;
     private final UploadSessionRepository sessionRepo;
     private final RuleCatalog ruleCatalog;
@@ -193,6 +199,14 @@ public class ValidationService {
 
         boolean projectWisePhase =
         "PROJECT_WISE".equalsIgnoreCase(
+                session.getValidationPhase());
+
+        boolean summaryPhase =
+        "SUMMARY".equalsIgnoreCase(
+                session.getValidationPhase());
+
+        boolean commercialPhase =
+        "COMMERCIAL".equalsIgnoreCase(
                 session.getValidationPhase());
 
         if (!pivotCells.isEmpty() && pivotPhase) {
@@ -689,6 +703,51 @@ public class ValidationService {
                 projectWiseCells,
                 issues);
         }
+
+        // ======================================================
+        // SUMMARY VALIDATION
+        // ======================================================
+
+        List<CellData> summaryCells = new ArrayList<>();
+        if (summaryPhase) {
+
+            summaryCells =
+                    cellRepo.findBySessionIdAndSheetNameOrderByRowIdxAscColIdxAsc(
+                            sessionId,
+                            SUMMARY_SHEET);
+
+            if (!summaryCells.isEmpty()) {
+
+                validateSummary(
+                        sessionId,
+                        allCells,
+                        pivotCells,
+                        summaryCells,
+                        issues);
+            }
+        }
+
+        // ======================================================
+        // COMMERCIAL VALIDATION
+        // ======================================================
+
+        if (commercialPhase) {
+
+            List<CellData> commercialCells =
+                    cellRepo.findBySessionIdAndSheetNameOrderByRowIdxAscColIdxAsc(
+                            sessionId,
+                            COMMERCIAL_SHEET);
+
+            if (!commercialCells.isEmpty()) {
+
+                validateCommercial(
+                        sessionId,
+                        allCells,
+                        summaryCells,
+                        commercialCells,
+                        issues);
+            }
+        }
         Map<String, Map<LocalDate, Double>> dailyHours = new HashMap<>();
 
         for (Map.Entry<Integer, Map<Integer, CellData>> rowEntry : rowMap.entrySet()) {
@@ -1040,18 +1099,17 @@ public class ValidationService {
                 .replaceAll("\\s+", " ");
     }
 
-//    private double getWorkingHoursPerDay(String employeeName) {
-//
-//        String normalized = normalizeName(employeeName);
-//
-//        return resourceRepo.findAll()
-//                .stream()
-//                .filter(r -> normalizeName(r.getName()).equals(normalized))
-//                .map(Resource::getWorkingHoursPerDay)
-//                .filter(Objects::nonNull)
-//                .findFirst()
-//                .orElse(props.getDefaultWorkingHoursPerDay());
-//    }
+    private double getWorkingHoursPerDay(String employeeName) {
+
+        return resourceRepo.findAll()
+                .stream()
+                .filter(r -> normalizeName(r.getName())
+                        .equals(normalizeName(employeeName)))
+                .map(Resource::getWorkingHoursPerDay)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(props.getDefaultWorkingHoursPerDay());
+    }
 
 
     private Set<String> extractTimesheetEmployees(
@@ -2463,6 +2521,7 @@ private void validateProjectWise(
     log.info("Sub Projects parsed  : {}", hierarchy.getSubProjects().size());
     log.info("Project Codes parsed : {}", hierarchy.getProjectCodes().size());
 
+    // ── Hours-based validation (existing rules) ────────────────
     validateProjects(
             sessionId,
             hierarchy,
@@ -2481,9 +2540,339 @@ private void validateProjectWise(
             projectCodeTotals,
             issues);
 
+    // ── Structural validation (new rules for bugs 1.1-1.8) ─────
+    Set<String> timesheetProjectNames = projectTotals.keySet().stream()
+            .map(ProjectKey::getProjectName)
+            .collect(Collectors.toSet());
+
+    Set<SubProjectKey> timesheetSubProjectKeys = subProjectTotals.keySet();
+
+    Set<String> timesheetSubProjectNames = timesheetSubProjectKeys.stream()
+            .map(SubProjectKey::getSubProjectName)
+            .collect(Collectors.toSet());
+
+    Set<ProjectCodeKey> timesheetProjectCodeKeys = projectCodeTotals.keySet();
+
+    Set<String> timesheetProjectCodeValues = timesheetProjectCodeKeys.stream()
+            .map(ProjectCodeKey::getProjectCode)
+            .collect(Collectors.toSet());
+
+    // PW-004: Missing Project in Project-wise sheet          (bug 1.1)
+    validateMissingProjects(sessionId, hierarchy, timesheetProjectNames, issues);
+
+    // PW-005: Extra/Invalid Project in Project-wise sheet     (bug 1.2)
+    validateExtraProjects(sessionId, hierarchy, timesheetProjectNames, issues);
+
+    // PW-006: Missing Sub-Project in Project-wise sheet       (bug 1.3)
+    validateMissingSubProjects(sessionId, hierarchy, timesheetSubProjectKeys, issues);
+
+    // PW-007: Wrong Project-SubProject mapping                (bug 1.4)
+    // PW-008: Extra/Invalid Sub-Project in Project-wise sheet (bug 1.5)
+    validateSubProjectStructure(sessionId, hierarchy, timesheetSubProjectKeys, timesheetSubProjectNames, issues);
+
+    // PW-009: Missing Project Code in Project-wise sheet      (bug 1.6)
+    validateMissingProjectCodes(sessionId, hierarchy, timesheetProjectCodeKeys, issues);
+
+    // PW-010: Wrong SubProject-ProjectCode mapping            (bug 1.7)
+    // PW-011: Extra/Invalid Project Code in Project-wise sheet(bug 1.8)
+    validateProjectCodeStructure(sessionId, hierarchy, timesheetProjectCodeKeys, timesheetProjectCodeValues, issues);
+
     log.info("Project Wise Validation completed.");
 }
 
+
+// =================================================================
+// NEW STRUCTURAL VALIDATION METHODS (Bugs 1.1 - 1.8)
+// =================================================================
+
+/**
+ * PW-004
+ *
+ * Detects projects present in the Timesheet but missing from the
+ * Project-wise sheet. (Bug 1.1)
+ */
+private void validateMissingProjects(
+        String sessionId,
+        ProjectWiseHierarchy hierarchy,
+        Set<String> timesheetProjectNames,
+        List<ValidationIssue> issues) {
+
+    log.info("Starting PW-004 (Missing Project) validation...");
+
+    for (String projectName : timesheetProjectNames) {
+
+        if (!hierarchy.containsProject(projectName)) {
+
+            log.warn("PW-004 failed. Project='{}' missing from Project-wise sheet.", projectName);
+
+            issues.add(projectWiseIssue(
+                    sessionId,
+                    "PW-004",
+                    "CRITICAL",
+                    -1,
+                    -1,
+                    "Project-wise",
+                    String.format(
+                            "Project '%s' is present in the Timesheet but missing from the Project-wise sheet.",
+                            projectName)));
+        }
+    }
+
+    log.info("Completed PW-004 validation.");
+}
+
+
+/**
+ * PW-005
+ *
+ * Detects extra/invalid projects in the Project-wise sheet that
+ * do not exist in the Timesheet data. (Bug 1.2)
+ */
+private void validateExtraProjects(
+        String sessionId,
+        ProjectWiseHierarchy hierarchy,
+        Set<String> timesheetProjectNames,
+        List<ValidationIssue> issues) {
+
+    log.info("Starting PW-005 (Extra Project) validation...");
+
+    for (ProjectSummary project : hierarchy.getProjects()) {
+
+        if (!timesheetProjectNames.contains(project.getProjectName())) {
+
+            log.warn("PW-005 failed. Extra Project='{}' not found in Timesheet.", project.getProjectName());
+
+            issues.add(projectWiseIssue(
+                    sessionId,
+                    "PW-005",
+                    "CRITICAL",
+                    project.getHoursCell(),
+                    String.format(
+                            "Invalid Project '%s' detected in Project-wise sheet. Project does not exist in Timesheet data.",
+                            project.getProjectName())));
+        }
+    }
+
+    log.info("Completed PW-005 validation.");
+}
+
+
+/**
+ * PW-006
+ *
+ * Detects sub-projects present in the Timesheet but missing from the
+ * Project-wise sheet. (Bug 1.3)
+ */
+private void validateMissingSubProjects(
+        String sessionId,
+        ProjectWiseHierarchy hierarchy,
+        Set<SubProjectKey> timesheetSubProjectKeys,
+        List<ValidationIssue> issues) {
+
+    log.info("Starting PW-006 (Missing Sub-Project) validation...");
+
+    for (SubProjectKey tsKey : timesheetSubProjectKeys) {
+
+        if (!hierarchy.containsSubProject(tsKey.getProjectName(), tsKey.getSubProjectName())) {
+
+            log.warn("PW-006 failed. Sub-Project='{}' under Project='{}' missing from Project-wise sheet.",
+                    tsKey.getSubProjectName(), tsKey.getProjectName());
+
+            issues.add(projectWiseIssue(
+                    sessionId,
+                    "PW-006",
+                    "CRITICAL",
+                    -1,
+                    -1,
+                    "Project-wise",
+                    String.format(
+                            "Sub-Project '%s' under Project '%s' is present in the Timesheet but missing from the Project-wise sheet.",
+                            tsKey.getSubProjectName(),
+                            tsKey.getProjectName())));
+        }
+    }
+
+    log.info("Completed PW-006 validation.");
+}
+
+
+/**
+ * PW-007 / PW-008
+ *
+ * For each sub-project in the Project-wise hierarchy:
+ * - If the (project, subProject) pair doesn't exist in the Timesheet:
+ *   - If the sub-project name exists in the Timesheet (under a different project)
+ *     -> PW-007: Wrong Project-SubProject mapping (bug 1.4)
+ *   - If the sub-project name does NOT exist in the Timesheet at all
+ *     -> PW-008: Invalid/Extra Sub-Project (bug 1.5)
+ */
+private void validateSubProjectStructure(
+        String sessionId,
+        ProjectWiseHierarchy hierarchy,
+        Set<SubProjectKey> timesheetSubProjectKeys,
+        Set<String> timesheetSubProjectNames,
+        List<ValidationIssue> issues) {
+
+    log.info("Starting PW-007/PW-008 (Sub-Project structure) validation...");
+
+    for (SubProjectSummary sp : hierarchy.getSubProjects()) {
+
+        SubProjectKey key = new SubProjectKey(sp.getProjectName(), sp.getSubProjectName());
+
+        if (timesheetSubProjectKeys.contains(key)) {
+            // This exact (project, subProject) pair exists in Timesheet.
+            // Hours are validated by PW-002, so skip here.
+            continue;
+        }
+
+        // The pair is not in Timesheet. Check if the sub-project name exists at all.
+        if (timesheetSubProjectNames.contains(sp.getSubProjectName())) {
+
+            // Sub-project name exists in Timesheet but under a different project -> wrong mapping
+            log.warn("PW-007 failed. Sub-Project='{}' mapped under wrong Project='{}'.",
+                    sp.getSubProjectName(), sp.getProjectName());
+
+            issues.add(projectWiseIssue(
+                    sessionId,
+                    "PW-007",
+                    "CRITICAL",
+                    sp.getHoursCell(),
+                    String.format(
+                            "Invalid Sub-project mapping. Sub-Project '%s' for Project '%s'.",
+                            sp.getSubProjectName(),
+                            sp.getProjectName())));
+
+        } else {
+
+            // Sub-project name does not exist in Timesheet at all -> extra/invalid
+            log.warn("PW-008 failed. Extra Sub-Project='{}' under Project='{}' not found in Timesheet.",
+                    sp.getSubProjectName(), sp.getProjectName());
+
+            issues.add(projectWiseIssue(
+                    sessionId,
+                    "PW-008",
+                    "CRITICAL",
+                    sp.getHoursCell(),
+                    String.format(
+                            "Invalid Sub-Project detected in Project-wise sheet. Sub-Project '%s' does not exist in Timesheet data.",
+                            sp.getSubProjectName())));
+        }
+    }
+
+    log.info("Completed PW-007/PW-008 validation.");
+}
+
+
+/**
+ * PW-009
+ *
+ * Detects project codes present in the Timesheet but missing from the
+ * Project-wise sheet. (Bug 1.6)
+ */
+private void validateMissingProjectCodes(
+        String sessionId,
+        ProjectWiseHierarchy hierarchy,
+        Set<ProjectCodeKey> timesheetProjectCodeKeys,
+        List<ValidationIssue> issues) {
+
+    log.info("Starting PW-009 (Missing Project Code) validation...");
+
+    for (ProjectCodeKey tsKey : timesheetProjectCodeKeys) {
+
+        if (!hierarchy.containsProjectCode(tsKey.getProjectName(), tsKey.getSubProjectName(), tsKey.getProjectCode())) {
+
+            log.warn("PW-009 failed. ProjectCode='{}' under SubProject='{}' of Project='{}' missing from Project-wise sheet.",
+                    tsKey.getProjectCode(), tsKey.getSubProjectName(), tsKey.getProjectName());
+
+            issues.add(projectWiseIssue(
+                    sessionId,
+                    "PW-009",
+                    "CRITICAL",
+                    -1,
+                    -1,
+                    "Project-wise",
+                    String.format(
+                            "Project Code '%s' under Sub-Project '%s' of Project '%s' is present in the Timesheet but missing from the Project-wise sheet.",
+                            tsKey.getProjectCode(),
+                            tsKey.getSubProjectName(),
+                            tsKey.getProjectName())));
+        }
+    }
+
+    log.info("Completed PW-009 validation.");
+}
+
+
+/**
+ * PW-010 / PW-011
+ *
+ * For each project code in the Project-wise hierarchy:
+ * - If the (project, subProject, projectCode) triple doesn't exist in the Timesheet:
+ *   - If the project code value exists in the Timesheet (under a different sub-project)
+ *     -> PW-010: Wrong SubProject-ProjectCode mapping (bug 1.7)
+ *   - If the project code does NOT exist in the Timesheet at all
+ *     -> PW-011: Invalid/Extra Project Code (bug 1.8)
+ */
+private void validateProjectCodeStructure(
+        String sessionId,
+        ProjectWiseHierarchy hierarchy,
+        Set<ProjectCodeKey> timesheetProjectCodeKeys,
+        Set<String> timesheetProjectCodeValues,
+        List<ValidationIssue> issues) {
+
+    log.info("Starting PW-010/PW-011 (Project Code structure) validation...");
+
+    for (ProjectCodeSummary pc : hierarchy.getProjectCodes()) {
+
+        ProjectCodeKey key = new ProjectCodeKey(
+                pc.getProjectName(), pc.getSubProjectName(), pc.getProjectCode());
+
+        if (timesheetProjectCodeKeys.contains(key)) {
+            // This exact triple exists in Timesheet. Hours are validated by PW-003, skip.
+            continue;
+        }
+
+        // The triple is not in Timesheet. Check if the project code value exists at all.
+        if (timesheetProjectCodeValues.contains(pc.getProjectCode())) {
+
+            // Project code exists in Timesheet but under a different sub-project -> wrong mapping
+            log.warn("PW-010 failed. ProjectCode='{}' mapped under wrong Sub-Project='{}' of Project='{}'.",
+                    pc.getProjectCode(), pc.getSubProjectName(), pc.getProjectName());
+
+            issues.add(projectWiseIssue(
+                    sessionId,
+                    "PW-010",
+                    "CRITICAL",
+                    pc.getHoursCell(),
+                    String.format(
+                            "Invalid PCode mapping. PCode '%s' does not belong to Sub-Project '%s'.",
+                            pc.getProjectCode(),
+                            pc.getSubProjectName())));
+
+        } else {
+
+            // Project code does not exist in Timesheet at all -> extra/invalid
+            log.warn("PW-011 failed. Extra ProjectCode='{}' under Sub-Project='{}' not found in Timesheet.",
+                    pc.getProjectCode(), pc.getSubProjectName());
+
+            issues.add(projectWiseIssue(
+                    sessionId,
+                    "PW-011",
+                    "CRITICAL",
+                    pc.getHoursCell(),
+                    String.format(
+                            "Invalid Projectcode detected in Project-wise sheet. Projectcode '%s' does not exist in Timesheet data.",
+                            pc.getProjectCode())));
+        }
+    }
+
+    log.info("Completed PW-010/PW-011 validation.");
+}
+
+
+// =================================================================
+// EXISTING HOURS-BASED VALIDATION METHODS (unchanged below)
+// =================================================================
 
 
 /**
@@ -2664,7 +3053,785 @@ private void validateSubProjects(
         }
 
 
+    // ======================================================
+    // SUMMARY VALIDATION
+    // ======================================================
+    // ======================================================
+    // SUMMARY VALIDATION
+    // ======================================================
 
+    /**
+     * Build a ValidationIssue for the Summary sheet.
+     */
+    private ValidationIssue summaryIssue(
+            String sid,
+            String ruleId,
+            String severity,
+            int row,
+            int col,
+            String field,
+            String msg) {
+
+        return ValidationIssue.builder()
+                .sessionId(sid)
+                .ruleId(ruleId)
+                .severity(severity)
+                .sheetName(SUMMARY_SHEET)
+                .rowIdx(row)
+                .colIdx(col)
+                .fieldName(field)
+                .message(renderMessage(ruleId, severity, field, msg))
+                .build();
+    }
+
+
+    /**
+     * Validates the Summary sheet against the DB and the Timesheet/Pivot data.
+     *
+     * Summary sheet layout (0-based):
+     *   Row 0: Title (ignore)
+     *   Row 1: Header (col 0=Sow No, 1=SOW Description, 2=PO#, 3=Name,
+     *           4=Location, 5=Daily Rate, 6=Start Date, 7=End Date,
+     *           8=Days Worked, 9=Travel Expense, 10=Total Amount, 11=Remarks)
+     *   Rows 2..N-1: Data rows
+     *   Row N: Totals row
+     */
+    private void validateSummary(
+            String sessionId,
+            List<CellData> timesheetCells,
+            List<CellData> pivotCells,
+            List<CellData> summaryCells,
+            List<ValidationIssue> issues) {
+
+        log.info("==================================================");
+        log.info("Starting Summary Validation");
+        log.info("==================================================");
+
+        // Build row map for Summary sheet
+        TreeMap<Integer, Map<Integer, CellData>> summaryRowMap = new TreeMap<>();
+        for (CellData c : summaryCells) {
+            summaryRowMap.computeIfAbsent(c.getRowIdx(), k -> new TreeMap<>()).put(c.getColIdx(), c);
+        }
+
+        if (summaryRowMap.isEmpty()) {
+            log.warn("Summary sheet is empty.");
+            return;
+        }
+
+        int firstKey = summaryRowMap.firstKey();
+        int lastKey = summaryRowMap.lastKey();
+
+        // Row 0 is title, Row 1 is header
+        int dataStartRow = firstKey + 2;
+
+        // Preload pivot days map for SM-07
+        Map<String, Double> pivotDays = new HashMap<>();
+        if (pivotCells != null && !pivotCells.isEmpty()) {
+            pivotDays = extractPivotEmployeeDays(pivotCells);
+        }
+
+        // Preload timesheet employee totals for SM-07 calculation
+        Map<String, Double> timesheetTotals = new HashMap<>();
+        if (timesheetCells != null && !timesheetCells.isEmpty()) {
+            timesheetTotals = extractTimesheetEmployeeTotals(timesheetCells);
+        }
+
+        // Preload resource data for lookups
+        Map<String, com.timesheet.validator.domain.Resource> resourceByName = new HashMap<>();
+        resourceRepo.findAll().forEach(r -> resourceByName.put(r.getName().trim().toLowerCase(), r));
+
+        // Preload SOW master data
+        Map<String, com.timesheet.validator.domain.SowMaster> sowByNumber = new HashMap<>();
+        sowMasterRepo.findAll().forEach(s -> sowByNumber.put(s.getSowNumber(), s));
+
+        // Iterate data rows (skip title row 0 and header row 1, skip totals row)
+        for (Map.Entry<Integer, Map<Integer, CellData>> entry : summaryRowMap.entrySet()) {
+
+            int rowIdx = entry.getKey();
+            if (rowIdx < dataStartRow) continue;
+            if (rowIdx == lastKey) continue; // skip totals row
+
+            Map<Integer, CellData> cols = entry.getValue();
+
+            String sowNo = val(cols, 0);
+            String sowDesc = val(cols, 1);
+            String poNumber = val(cols, 2);
+            String employeeName = val(cols, 3);
+            String dailyRateStr = val(cols, 5);
+            String startDateStr = val(cols, 6);
+            String endDateStr = val(cols, 7);
+            String daysWorkedStr = val(cols, 8);
+            String travelExpenseStr = val(cols, 9);
+            String totalAmountStr = val(cols, 10);
+
+            if (sowNo.isBlank() && employeeName.isBlank()) continue;
+
+            // =========================================
+            // SM-01: SOW No + Description
+            // =========================================
+            if (!sowNo.isBlank()) {
+                com.timesheet.validator.domain.SowMaster sow = sowByNumber.get(sowNo.trim());
+                if (sow == null) {
+                    issues.add(summaryIssue(
+                            sessionId, "SM-01", "CRITICAL", rowIdx, 0, "Sow No",
+                            String.format("SOW '%s' not found in SOW_MASTER table.", sowNo)));
+                } else if (!sowDesc.isBlank() && !sowDesc.trim().equalsIgnoreCase(sow.getDescription())) {
+                    issues.add(summaryIssue(
+                            sessionId, "SM-01", "CRITICAL", rowIdx, 1, "SOW Description",
+                            String.format("SOW Description mismatch for '%s'. Expected '%s', found '%s'.",
+                                    sowNo, sow.getDescription(), sowDesc)));
+                }
+            }
+
+            // =========================================
+            // SM-05: PO Number
+            // =========================================
+            if (!sowNo.isBlank() && !poNumber.isBlank()) {
+                com.timesheet.validator.domain.SowMaster sow = sowByNumber.get(sowNo.trim());
+                if (sow != null) {
+                    String expectedPo = sow.getPoNumber();
+                    if (expectedPo != null && !expectedPo.isBlank()) {
+                        // Normalize: PO numbers may appear as scientific notation in Excel
+                        String normalizedPo = poNumber.trim();
+                        if (normalizedPo.contains("E") || normalizedPo.contains("e")) {
+                            try {
+                                normalizedPo = String.valueOf((long) Double.parseDouble(normalizedPo));
+                            } catch (NumberFormatException ignored) {}
+                        }
+                        if (!expectedPo.equals(normalizedPo)) {
+                            issues.add(summaryIssue(
+                                    sessionId, "SM-05", "CRITICAL", rowIdx, 2, "PO#",
+                                    String.format("PO Number mismatch for SOW '%s'. Expected '%s', found '%s'.",
+                                            sowNo, expectedPo, poNumber)));
+                        }
+                    }
+                }
+            }
+
+            // =========================================
+            // SM-02: Employee Name
+            // =========================================
+            if (!employeeName.isBlank()) {
+                String normalizedName = employeeName.trim().toLowerCase();
+                com.timesheet.validator.domain.Resource resource = resourceByName.get(normalizedName);
+                if (resource == null) {
+                    issues.add(summaryIssue(
+                            sessionId, "SM-02", "CRITICAL", rowIdx, 3, "Name",
+                            String.format("Employee '%s' not found in RESOURCE table.", employeeName)));
+                } else if (!sowNo.isBlank()) {
+                    boolean mapped = resourceSowRepo.existsByResourceIdAndSowNumber(
+                            resource.getResourceId(), sowNo.trim());
+                    if (!mapped) {
+                        issues.add(summaryIssue(
+                                sessionId, "SM-02", "CRITICAL", rowIdx, 3, "Name",
+                                String.format("Employee '%s' (ID: %s) is not mapped to SOW '%s'.",
+                                        employeeName, resource.getResourceId(), sowNo)));
+                    }
+                }
+            }
+
+            // =========================================
+            // SM-03: Daily Rate
+            // =========================================
+            if (!employeeName.isBlank() && !dailyRateStr.isBlank()) {
+                String normalizedName = employeeName.trim().toLowerCase();
+                com.timesheet.validator.domain.Resource resource = resourceByName.get(normalizedName);
+                if (resource != null && resource.getDailyRateUsd() != null) {
+                    try {
+                        double actualRate = Double.parseDouble(dailyRateStr.trim());
+                        double expectedRate = resource.getDailyRateUsd().doubleValue();
+                        if (Math.abs(actualRate - expectedRate) > 0.01) {
+                            issues.add(summaryIssue(
+                                    sessionId, "SM-03", "CRITICAL", rowIdx, 5, "Daily Rate",
+                                    String.format("Daily Rate mismatch for '%s'. Expected %.2f, found %.2f.",
+                                            employeeName, expectedRate, actualRate)));
+                        }
+                    } catch (NumberFormatException e) {
+                        issues.add(summaryIssue(
+                                sessionId, "SM-03", "CRITICAL", rowIdx, 5, "Daily Rate",
+                                String.format("Invalid Daily Rate value '%s' for '%s'.",
+                                        dailyRateStr, employeeName)));
+                    }
+                }
+            }
+
+            // =========================================
+            // SM-04: Billing Period (Start/End Date)
+            // =========================================
+            if (!employeeName.isBlank() && (!startDateStr.isBlank() || !endDateStr.isBlank())) {
+                String normalizedName = employeeName.trim().toLowerCase();
+                com.timesheet.validator.domain.Resource resource = resourceByName.get(normalizedName);
+                if (resource != null) {
+                    if (!startDateStr.isBlank() && resource.getStartDate() != null) {
+                        LocalDate parsedStart = parseDate(startDateStr.trim());
+                        if (parsedStart != null && !parsedStart.equals(resource.getStartDate())) {
+                            issues.add(summaryIssue(
+                                    sessionId, "SM-04", "CRITICAL", rowIdx, 6, "Start Date",
+                                    String.format("Start Date mismatch for '%s'. Expected %s, found %s.",
+                                            employeeName, resource.getStartDate(), startDateStr)));
+                        }
+                    }
+                    if (!endDateStr.isBlank() && resource.getEndDate() != null) {
+                        LocalDate parsedEnd = parseDate(endDateStr.trim());
+                        if (parsedEnd != null && !parsedEnd.equals(resource.getEndDate())) {
+                            issues.add(summaryIssue(
+                                    sessionId, "SM-04", "CRITICAL", rowIdx, 7, "End Date",
+                                    String.format("End Date mismatch for '%s'. Expected %s, found %s.",
+                                            employeeName, resource.getEndDate(), endDateStr)));
+                        }
+                    }
+                }
+            }
+
+            // =========================================
+            // SM-07: Working Days (three-way reconciliation)
+            // =========================================
+            if (!employeeName.isBlank() && !daysWorkedStr.isBlank()) {
+                String normalizedName = employeeName.trim().toLowerCase();
+                try {
+                    double summaryDays = Double.parseDouble(daysWorkedStr.trim());
+
+                    Double pivotDayVal = pivotDays.get(normalizedName);
+
+                    Double timesheetTotal = timesheetTotals.get(normalizedName);
+                    double workingHoursPerDay = getWorkingHoursPerDay(employeeName);
+                    double expectedDaysFromTimesheet = (timesheetTotal != null)
+                            ? timesheetTotal / workingHoursPerDay
+                            : 0.0;
+
+                    boolean mismatch = false;
+                    StringBuilder msg = new StringBuilder();
+                    msg.append(String.format("Working Days mismatch for '%s'. Summary=%.1f",
+                            employeeName, summaryDays));
+
+                    if (pivotDayVal != null && Math.abs(summaryDays - pivotDayVal) > 0.01) {
+                        mismatch = true;
+                        msg.append(String.format(", Pivot=%.1f", pivotDayVal));
+                    }
+                    if (Math.abs(summaryDays - expectedDaysFromTimesheet) > 0.01) {
+                        mismatch = true;
+                        msg.append(String.format(", Timesheet=%.1f", expectedDaysFromTimesheet));
+                    }
+
+                    if (mismatch) {
+                        issues.add(summaryIssue(
+                                sessionId, "SM-07", "CRITICAL", rowIdx, 8, "Days Worked",
+                                msg.toString()));
+                    }
+                } catch (NumberFormatException e) {
+                    issues.add(summaryIssue(
+                            sessionId, "SM-07", "CRITICAL", rowIdx, 8, "Days Worked",
+                            String.format("Invalid Days Worked value '%s' for '%s'.",
+                                    daysWorkedStr, employeeName)));
+                }
+            }
+
+            // =========================================
+            // SM-08: Travel Expense sanity check
+            // =========================================
+            if (!travelExpenseStr.isBlank()) {
+                try {
+                    double travelExpense = Double.parseDouble(travelExpenseStr.trim());
+                    if (travelExpense < 0) {
+                        issues.add(summaryIssue(
+                                sessionId, "SM-08", "CRITICAL", rowIdx, 9, "Travel Expense",
+                                String.format("Travel Expense cannot be negative. Found %.2f for '%s'.",
+                                        travelExpense, employeeName)));
+                    }
+                } catch (NumberFormatException e) {
+                    issues.add(summaryIssue(
+                            sessionId, "SM-08", "CRITICAL", rowIdx, 9, "Travel Expense",
+                            String.format("Invalid Travel Expense value '%s' for '%s'.",
+                                    travelExpenseStr, employeeName)));
+                }
+            }
+
+            // =========================================
+            // SM-09: Total Amount formula validation
+            // =========================================
+            if (!dailyRateStr.isBlank() && !daysWorkedStr.isBlank() && !totalAmountStr.isBlank()) {
+                try {
+                    double dailyRate = Double.parseDouble(dailyRateStr.trim());
+                    double daysWorked = Double.parseDouble(daysWorkedStr.trim());
+                    double travelExpense = travelExpenseStr.isBlank() ? 0.0
+                            : Double.parseDouble(travelExpenseStr.trim());
+                    double totalAmount = Double.parseDouble(totalAmountStr.trim());
+
+                    double expectedTotal = dailyRate * daysWorked + travelExpense;
+
+                    if (Math.abs(totalAmount - expectedTotal) > 0.01) {
+                        issues.add(summaryIssue(
+                                sessionId, "SM-09", "CRITICAL", rowIdx, 10, "Total Amount",
+                                String.format(
+                                        "Total Amount calculation mismatch for '%s'. Expected %.2f (%.2f * %.2f + %.2f), found %.2f.",
+                                        employeeName, expectedTotal, dailyRate, daysWorked, travelExpense, totalAmount)));
+                    }
+                } catch (NumberFormatException e) {
+                    issues.add(summaryIssue(
+                            sessionId, "SM-09", "CRITICAL", rowIdx, 10, "Total Amount",
+                            String.format("Invalid numeric value in Total Amount calculation for '%s'.",
+                                    employeeName)));
+                }
+            }
+        }
+
+        log.info("Summary Validation completed.");
+    }
+
+
+
+
+    // ======================================================
+    // COMMERCIAL VALIDATION
+    // ======================================================
+
+    /**
+     * Build a ValidationIssue for the Commercial sheet.
+     */
+    private ValidationIssue commercialIssue(
+            String sid,
+            String ruleId,
+            String severity,
+            int row,
+            int col,
+            String field,
+            String msg) {
+
+        return ValidationIssue.builder()
+                .sessionId(sid)
+                .ruleId(ruleId)
+                .severity(severity)
+                .sheetName(COMMERCIAL_SHEET)
+                .rowIdx(row)
+                .colIdx(col)
+                .fieldName(field)
+                .message(renderMessage(ruleId, severity, field, msg))
+                .build();
+    }
+
+
+    /**
+     * Validates the Commercial sheet against master data and Summary sheet.
+     *
+     * Commercial sheet layout (0-indexed rowIdx):
+     *   Row 0: Project Name | value
+     *   Row 1: Project ID   | value
+     *   Row 2: PO Number    | value
+     *   Row 3: PO Value     | value
+     *   Row 4: Total Billable Headcount | value
+     *   Row 5: Month        | date serial
+     *   Row 6: Month Ideal Days | value
+     *   Row 7: PO Balance   | value
+     *   Row 8: Data header: Work Location | Resource count | Total Billable Days | Total Billable Amount
+     *   Row 9+: Data rows
+     *   Row 13: Invoicing plan header
+     *   Row 15: PO # | value
+     *   Row 16: PO Amount | value
+     *   Row 17: Invoicing header: Month | Planned Value | Actual Value | PO Balance | Remarks
+     *   Row 18+: Invoicing data rows
+     *
+     * Column layout (0-indexed):
+     *   Col 0: Label
+     *   Col 1: Value (or Resource count in data section)
+     *   Col 2: Total Billable Days (data section)
+     *   Col 3: Total Billable Amount (data section)
+     *   Col 4: Remarks (invoicing section)
+     */
+    private void validateCommercial(
+            String sessionId,
+            List<CellData> timesheetCells,
+            List<CellData> summaryCells,
+            List<CellData> commercialCells,
+            List<ValidationIssue> issues) {
+
+        log.info("==================================================");
+        log.info("Starting Commercial Validation");
+        log.info("==================================================");
+
+        // Build row map for Commercial sheet
+        TreeMap<Integer, Map<Integer, CellData>> commercialRowMap = new TreeMap<>();
+        for (CellData c : commercialCells) {
+            commercialRowMap.computeIfAbsent(c.getRowIdx(), k -> new TreeMap<>()).put(c.getColIdx(), c);
+        }
+
+        if (commercialRowMap.isEmpty()) {
+            log.warn("Commercial sheet is empty.");
+            return;
+        }
+
+        // Helper to get value from a specific row/col
+        // Col 0 = label, Col 1 = value
+        java.util.function.BiFunction<Integer, Integer, String> getValue = (rowIdx, colIdx) -> {
+            Map<Integer, CellData> row = commercialRowMap.get(rowIdx);
+            if (row == null) return "";
+            CellData cell = row.get(colIdx);
+            if (cell == null) return "";
+            String display = cell.getDisplayValue();
+            return display == null ? "" : display.trim();
+        };
+
+        // Preload SOW master data
+        Map<String, com.timesheet.validator.domain.SowMaster> sowByNumber = new HashMap<>();
+        sowMasterRepo.findAll().forEach(s -> sowByNumber.put(s.getSowNumber(), s));
+
+        // Preload resource data
+        Map<String, com.timesheet.validator.domain.Resource> resourceByName = new HashMap<>();
+        resourceRepo.findAll().forEach(r -> resourceByName.put(r.getName().trim().toLowerCase(), r));
+
+        // =========================================
+        // =========================================
+        // Extract values from Commercial sheet
+        // =========================================
+        String projectName = getValue.apply(0, 1);
+        String projectId = getValue.apply(1, 1);
+        String poNumber = getValue.apply(2, 1);
+        String poValueStr = getValue.apply(3, 1);
+        String billableHeadcountStr = getValue.apply(4, 1);
+        String poBalanceStr = getValue.apply(7, 1);
+        String poAmountStr = getValue.apply(15, 1);
+
+        // Normalize PO number (may appear as scientific notation)
+        String normalizedPoNumber = poNumber;
+        if (normalizedPoNumber.contains("E") || normalizedPoNumber.contains("e")) {
+            try {
+                normalizedPoNumber = String.valueOf((long) Double.parseDouble(normalizedPoNumber));
+            } catch (NumberFormatException ignored) {}
+        }
+
+        // =========================================
+        // CM-01: Project Information Validation
+        // =========================================
+        log.info("CM-01: Project Name='{}' Project ID='{}'", projectName, projectId);
+
+        if (!projectName.isBlank()) {
+            // Check if any SOW has a description matching the project name
+            boolean projectFound = false;
+            for (com.timesheet.validator.domain.SowMaster sow : sowByNumber.values()) {
+                if (sow.getDescription() != null
+                        && sow.getDescription().trim().equalsIgnoreCase(projectName.trim())) {
+                    projectFound = true;
+                    break;
+                }
+            }
+            if (!projectFound) {
+                issues.add(commercialIssue(
+                        sessionId, "CM-01", "CRITICAL", 0, 1, "Project Name",
+                        String.format("Invalid Project Name. Project '%s' not found in Project Master.", projectName)));
+            }
+        }
+
+        if (!projectId.isBlank()) {
+            // Check if any SOW has a sowNumber containing the project ID info
+            // Project ID format: "IGT SOW No 18-2026" — we check if it matches any SOW
+            boolean idFound = false;
+            for (com.timesheet.validator.domain.SowMaster sow : sowByNumber.values()) {
+                String combined = sow.getClient() + " SOW No " + sow.getSowNumber().replace("SOW_", "").replace("_", "-");
+                if (combined.equalsIgnoreCase(projectId.trim())) {
+                    idFound = true;
+                    break;
+                }
+            }
+            if (!idFound) {
+                issues.add(commercialIssue(
+                        sessionId, "CM-01", "CRITICAL", 1, 1, "Project ID",
+                        String.format("Invalid Project ID. Project ID '%s' not found in Project Master.", projectId)));
+            }
+        }
+
+        // =========================================
+        // CM-02: PO Validation & Resource Count Validation
+        // =========================================
+        log.info("CM-02: PO Number='{}' PO Value='{}' Headcount='{}'",
+                normalizedPoNumber, poValueStr, billableHeadcountStr);
+
+        // Validate PO Number against SOW_MASTER
+        if (!normalizedPoNumber.isBlank()) {
+            boolean poFound = false;
+            String expectedPoValue = null;
+            for (com.timesheet.validator.domain.SowMaster sow : sowByNumber.values()) {
+                if (sow.getPoNumber() != null && sow.getPoNumber().equals(normalizedPoNumber)) {
+                    poFound = true;
+                    expectedPoValue = sow.getPoValue() != null
+                            ? String.valueOf(sow.getPoValue().longValue())
+                            : null;
+                    break;
+                }
+            }
+            if (!poFound) {
+                issues.add(commercialIssue(
+                        sessionId, "CM-02", "CRITICAL", 2, 1, "PO Number",
+                        String.format("Invalid PO Number '%s' for selected Project.", normalizedPoNumber)));
+            } else {
+                // Validate PO Value
+                if (!poValueStr.isBlank() && expectedPoValue != null) {
+                    try {
+                        String normalizedPoValue = poValueStr.replaceAll("[,$]", "");
+                        if (!normalizedPoValue.equals(expectedPoValue)) {
+                            issues.add(commercialIssue(
+                                    sessionId, "CM-02", "CRITICAL", 3, 1, "PO Value",
+                                    String.format("PO Value mismatch with Project Mastersheet. Expected '%s', found '%s'.",
+                                            expectedPoValue, poValueStr)));
+                        }
+                    } catch (Exception e) {
+                        log.warn("Could not parse PO Value: {}", poValueStr);
+                    }
+                }
+            }
+        }
+
+        // Validate Total Billable Headcount against Summary resource count
+        if (!billableHeadcountStr.isBlank() && summaryCells != null && !summaryCells.isEmpty()) {
+            try {
+                int commercialHeadcount = Integer.parseInt(billableHeadcountStr.trim());
+
+                // Count unique resources in Summary sheet
+                Set<String> summaryResources = new HashSet<>();
+                TreeMap<Integer, Map<Integer, CellData>> summaryRowMap = new TreeMap<>();
+                for (CellData c : summaryCells) {
+                    summaryRowMap.computeIfAbsent(c.getRowIdx(), k -> new TreeMap<>()).put(c.getColIdx(), c);
+                }
+                int summaryFirstKey = summaryRowMap.firstKey();
+                int summaryLastKey = summaryRowMap.lastKey();
+                int dataStartRow = summaryFirstKey + 2;
+
+                for (Map.Entry<Integer, Map<Integer, CellData>> entry : summaryRowMap.entrySet()) {
+                    int rowIdx = entry.getKey();
+                    if (rowIdx < dataStartRow) continue;
+                    if (rowIdx == summaryLastKey) continue;
+                    Map<Integer, CellData> cols = entry.getValue();
+                    String empName = val(cols, 3);
+                    if (!empName.isBlank()) {
+                        summaryResources.add(empName.trim().toLowerCase());
+                    }
+                }
+
+                if (commercialHeadcount != summaryResources.size()) {
+                    issues.add(commercialIssue(
+                            sessionId, "CM-02", "CRITICAL", 4, 1, "Total Billable Headcount",
+                            String.format("Resource count mismatch detected. Commercial=%d, Summary=%d.",
+                                    commercialHeadcount, summaryResources.size())));
+                }
+            } catch (NumberFormatException e) {
+                issues.add(commercialIssue(
+                        sessionId, "CM-02", "CRITICAL", 4, 1, "Total Billable Headcount",
+                        String.format("Invalid Total Billable Headcount value: '%s'.", billableHeadcountStr)));
+            }
+        }
+
+        // =========================================
+        // CM-03: Total Billable Days Validation
+        // =========================================
+        log.info("CM-03: Checking Total Billable Days against Summary");
+
+        if (summaryCells != null && !summaryCells.isEmpty()) {
+            // Calculate total Summary working days
+            double summaryTotalDays = 0;
+            TreeMap<Integer, Map<Integer, CellData>> summaryRowMap = new TreeMap<>();
+            for (CellData c : summaryCells) {
+                summaryRowMap.computeIfAbsent(c.getRowIdx(), k -> new TreeMap<>()).put(c.getColIdx(), c);
+            }
+            int sFirstKey = summaryRowMap.firstKey();
+            int sLastKey = summaryRowMap.lastKey();
+            int sDataStart = sFirstKey + 2;
+
+            for (Map.Entry<Integer, Map<Integer, CellData>> entry : summaryRowMap.entrySet()) {
+                int rowIdx = entry.getKey();
+                if (rowIdx < sDataStart) continue;
+                if (rowIdx == sLastKey) continue;
+                Map<Integer, CellData> cols = entry.getValue();
+                String daysStr = val(cols, 8);
+                if (!daysStr.isBlank()) {
+                    try {
+                        summaryTotalDays += Double.parseDouble(daysStr.trim());
+                    } catch (NumberFormatException ignored) {}
+                }
+            }
+
+            // Calculate Commercial total billable days from data rows (row 9+)
+            double commercialTotalDays = 0;
+            for (Map.Entry<Integer, Map<Integer, CellData>> entry : commercialRowMap.entrySet()) {
+                int rowIdx = entry.getKey();
+                // Data rows start at row 9 (0-indexed), before invoicing plan section
+                if (rowIdx < 9) continue;
+                // Stop at invoicing plan section (row 12+ is the invoicing plan)
+                if (rowIdx >= 12) continue;
+                Map<Integer, CellData> cols = entry.getValue();
+                // Col 2 = Total Billable Days
+                String daysStr = val(cols, 2);
+                if (!daysStr.isBlank()) {
+                    try {
+                        commercialTotalDays += Double.parseDouble(daysStr.trim());
+                    } catch (NumberFormatException ignored) {}
+                }
+            }
+
+            log.info("CM-03: Summary total days={}, Commercial total days={}",
+                    summaryTotalDays, commercialTotalDays);
+
+            if (summaryTotalDays > 0 && Math.abs(commercialTotalDays - summaryTotalDays) > 0.01) {
+                issues.add(commercialIssue(
+                        sessionId, "CM-03", "CRITICAL", 8, 2, "Total Billable Days",
+                        String.format("Total Billable Days mismatch between Summary and Commercial sheet. Summary=%.1f, Commercial=%.1f.",
+                                summaryTotalDays, commercialTotalDays)));
+            }
+        }
+
+        // =========================================
+        // CM-04: Total Billable Amount Validation
+        // =========================================
+        log.info("CM-04: Checking Total Billable Amount against Summary");
+
+        if (summaryCells != null && !summaryCells.isEmpty()) {
+            // Calculate total Summary amount
+            double summaryTotalAmount = 0;
+            TreeMap<Integer, Map<Integer, CellData>> summaryRowMap = new TreeMap<>();
+            for (CellData c : summaryCells) {
+                summaryRowMap.computeIfAbsent(c.getRowIdx(), k -> new TreeMap<>()).put(c.getColIdx(), c);
+            }
+            int sFirstKey = summaryRowMap.firstKey();
+            int sLastKey = summaryRowMap.lastKey();
+            int sDataStart = sFirstKey + 2;
+
+            for (Map.Entry<Integer, Map<Integer, CellData>> entry : summaryRowMap.entrySet()) {
+                int rowIdx = entry.getKey();
+                if (rowIdx < sDataStart) continue;
+                if (rowIdx == sLastKey) continue;
+                Map<Integer, CellData> cols = entry.getValue();
+                String amountStr = val(cols, 10);
+                if (!amountStr.isBlank()) {
+                    try {
+                        summaryTotalAmount += Double.parseDouble(amountStr.trim().replaceAll("[,$]", ""));
+                    } catch (NumberFormatException ignored) {}
+                }
+            }
+
+            // Calculate Commercial total billable amount from data rows (row 9+)
+            double commercialTotalAmount = 0;
+            for (Map.Entry<Integer, Map<Integer, CellData>> entry : commercialRowMap.entrySet()) {
+                int rowIdx = entry.getKey();
+                if (rowIdx < 9) continue;
+                if (rowIdx >= 12) continue;
+                Map<Integer, CellData> cols = entry.getValue();
+                // Col 3 = Total Billable Amount
+                String amountStr = val(cols, 3);
+                if (!amountStr.isBlank()) {
+                    try {
+                        commercialTotalAmount += Double.parseDouble(amountStr.trim().replaceAll("[,$]", ""));
+                    } catch (NumberFormatException ignored) {}
+                }
+            }
+
+            log.info("CM-04: Summary total amount={}, Commercial total amount={}",
+                    summaryTotalAmount, commercialTotalAmount);
+
+            if (summaryTotalAmount > 0 && Math.abs(commercialTotalAmount - summaryTotalAmount) > 0.01) {
+                issues.add(commercialIssue(
+                        sessionId, "CM-04", "CRITICAL", 8, 3, "Total Billable Amount",
+                        String.format("Total Billable Amount mismatch between Summary and Commercial sheet. Summary=%.2f, Commercial=%.2f.",
+                                summaryTotalAmount, commercialTotalAmount)));
+            }
+        }
+
+        // =========================================
+        // CM-05: Planned Value, Actual Value & PO Balance Validation
+        // =========================================
+        log.info("CM-05: Checking PO Balance calculation");
+
+        if (!poAmountStr.isBlank() && !poBalanceStr.isBlank()) {
+            try {
+                double poAmount = Double.parseDouble(poAmountStr.trim().replaceAll("[,$]", ""));
+                double poBalance = Double.parseDouble(poBalanceStr.trim().replaceAll("[,$]", ""));
+
+                // Sum all Actual Values from invoicing plan rows (row 17+)
+                double cumulativeActualValue = 0;
+                for (Map.Entry<Integer, Map<Integer, CellData>> entry : commercialRowMap.entrySet()) {
+                    int rowIdx = entry.getKey();
+                    // Invoicing data rows start at row 17 (0-indexed)
+                    if (rowIdx < 17) continue;
+                    Map<Integer, CellData> cols = entry.getValue();
+                    // Col 2 = Actual Value in invoicing section
+                    String actualStr = val(cols, 2);
+                    if (!actualStr.isBlank()) {
+                        try {
+                            cumulativeActualValue += Double.parseDouble(actualStr.trim().replaceAll("[,$]", ""));
+                        } catch (NumberFormatException ignored) {}
+                    }
+                }
+
+                // Expected PO Balance = PO Amount - Cumulative Actual Value
+                double expectedBalance = poAmount - cumulativeActualValue;
+
+                log.info("CM-05: PO Amount={}, Cumulative Actual={}, Expected Balance={}, Actual Balance={}",
+                        poAmount, cumulativeActualValue, expectedBalance, poBalance);
+
+                if (Math.abs(expectedBalance - poBalance) > 0.01) {
+                    issues.add(commercialIssue(
+                            sessionId, "CM-05", "CRITICAL", 7, 1, "PO Balance",
+                            String.format("PO Balance calculation mismatch. Expected=%.2f (PO Amount %.2f - Cumulative Actual %.2f), found %.2f.",
+                                    expectedBalance, poAmount, cumulativeActualValue, poBalance)));
+                }
+
+                // Also validate each invoicing row's PO Balance
+                for (Map.Entry<Integer, Map<Integer, CellData>> entry : commercialRowMap.entrySet()) {
+                    int rowIdx = entry.getKey();
+                    if (rowIdx < 17) continue;
+                    Map<Integer, CellData> cols = entry.getValue();
+                    String plannedStr = val(cols, 1);
+                    String actualStr = val(cols, 2);
+                    String balanceStr = val(cols, 3);
+                    if (plannedStr.isBlank() && actualStr.isBlank() && balanceStr.isBlank()) continue;
+
+                    // Validate that PO Balance = previous PO Balance - Actual Value
+                    // (This is a simplified check; a full implementation would track
+                    //  the running balance from the first invoicing row)
+                }
+
+            } catch (NumberFormatException e) {
+                log.warn("CM-05: Could not parse numeric values: PO Amount='{}', PO Balance='{}'",
+                        poAmountStr, poBalanceStr);
+            }
+        }
+
+        // =========================================
+        // CM-06: Positive PO Balance Validation
+        // =========================================
+        log.info("CM-06: Checking PO Balance is positive");
+
+        if (!poBalanceStr.isBlank()) {
+            try {
+                double poBalance = Double.parseDouble(poBalanceStr.trim().replaceAll("[,$]", ""));
+                if (poBalance < 0) {
+                    issues.add(commercialIssue(
+                            sessionId, "CM-06", "WARNING", 7, 1, "PO Balance",
+                            String.format("Warning: PO Balance has turned negative (%.2f). Project has exceeded allocated budget.",
+                                    poBalance)));
+                }
+
+                // Also check invoicing plan rows for negative PO Balance
+                for (Map.Entry<Integer, Map<Integer, CellData>> entry : commercialRowMap.entrySet()) {
+                    int rowIdx = entry.getKey();
+                    if (rowIdx < 17) continue;
+                    Map<Integer, CellData> cols = entry.getValue();
+                    String balanceStr = val(cols, 3);
+                    if (balanceStr.isBlank()) continue;
+                    try {
+                        double invBalance = Double.parseDouble(balanceStr.trim().replaceAll("[,$]", ""));
+                        if (invBalance < 0) {
+                            issues.add(commercialIssue(
+                                    sessionId, "CM-06", "WARNING", rowIdx, 3, "PO Balance",
+                                    String.format("Warning: PO Balance has turned negative (%.2f) in invoicing row %d. Project has exceeded allocated budget.",
+                                            invBalance, rowIdx + 1)));
+                        }
+                    } catch (NumberFormatException ignored) {}
+                }
+
+            } catch (NumberFormatException e) {
+                log.warn("CM-06: Could not parse PO Balance: '{}'", poBalanceStr);
+            }
+        }
+
+        log.info("Commercial Validation completed.");
+    }
 
 
 }

@@ -18,7 +18,23 @@ public enum ValidationRule {
     PS_06("PS-06", "Pivot working days validation"),
     PW_001("PW-001", "Project totals validation"),
     PW_002("PW-002", "Sub Project totals validation"),
-    PW_003("PW-003", "Project Code totals validation");
+    PW_003("PW-003", "Project Code totals validation"),
+
+    SM_01("SM-01", "SOW No + Description cross-ref against SOW_MASTER"),
+    SM_02("SM-02", "Employee Name cross-ref against RESOURCE + RESOURCE_SOW"),
+    SM_03("SM-03", "Daily Rate cross-ref against RESOURCE.DAILY_RATE_USD"),
+    SM_04("SM-04", "Billing Period cross-ref against RESOURCE.START_DATE / END_DATE"),
+    SM_05("SM-05", "PO Number cross-ref against SOW_MASTER.PO_NUMBER"),
+    SM_07("SM-07", "Working Days three-way reconciliation (Timesheet/Pivot/Summary)"),
+    SM_08("SM-08", "Travel Expense sanity check"),
+    SM_09("SM-09", "Total Amount formula validation"),
+
+    CM_01("CM-01", "Project Information validation (Name + ID)"),
+    CM_02("CM-02", "PO Validation & Resource Count Validation"),
+    CM_03("CM-03", "Total Billable Days Validation"),
+    CM_04("CM-04", "Total Billable Amount Validation"),
+    CM_05("CM-05", "Planned Value, Actual Value & PO Balance Validation"),
+    CM_06("CM-06", "Positive PO Balance Validation");
 
 
     private final String ruleId;

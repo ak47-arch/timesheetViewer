@@ -73,7 +73,9 @@ public class MasterDataLoader implements ApplicationRunner {
                                 .startDate(parse(r.getStartDate()))
                                 .endDate(parse(r.getEndDate()))
                                 .workingHoursPerDay(
-                                        props.getDefaultWorkingHoursPerDay()
+                                        r.getWorkingHoursPerDay() != null
+                                            ? r.getWorkingHoursPerDay()
+                                            : props.getDefaultWorkingHoursPerDay()
                                 )
                                 .build())
                         .collect(Collectors.toList())
