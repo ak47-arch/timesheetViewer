@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+            http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <changeSet id="009-sheetmeta-layout" author="jatin">
+
+        <addColumn tableName="SHEET_META">
+
+            <column name="COLUMN_WIDTHS_JSON" type="CLOB"/>
+
+            <column name="ROW_HEIGHTS_JSON" type="CLOB"/>
+
+            <column name="MERGED_REGIONS_JSON" type="CLOB"/>
+
+        </addColumn>
+
+    </changeSet>
+
+</databaseChangeLog>

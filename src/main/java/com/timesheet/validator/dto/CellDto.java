@@ -19,4 +19,29 @@ public class CellDto {
     private List<String> severities;
     private String highestSeverity;
     private boolean employeeIssue;
+
+    /*
+     * Excel styling information.
+     */
+    private String backgroundColor;
+
+    private String fontColor;
+
+    private Short fontSize;
+
+    private boolean bold;
+
+    private boolean italic;
+
+    private String horizontalAlignment;
+
+    private String verticalAlignment;
+
+    private String borderTop;
+
+    private String borderBottom;
+
+    private String borderLeft;
+
+    private String borderRight;
 }

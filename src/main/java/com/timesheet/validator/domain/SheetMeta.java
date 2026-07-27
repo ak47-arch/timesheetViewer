@@ -8,4 +8,22 @@ public class SheetMeta {
     @Column(name="SHEET_INDEX") private Integer sheetIndex;
     @Column(name="ROW_COUNT") private Integer rowCount;
     @Column(name="COL_COUNT") private Integer colCount;
+
+    /*
+     * ==========================
+     * Excel sheet layout
+     * ==========================
+     */
+
+    @Lob
+    @Column(name = "COLUMN_WIDTHS_JSON")
+    private String columnWidthsJson;
+
+    @Lob
+    @Column(name = "ROW_HEIGHTS_JSON")
+    private String rowHeightsJson;
+
+    @Lob
+    @Column(name = "MERGED_REGIONS_JSON")
+    private String mergedRegionsJson;
 }

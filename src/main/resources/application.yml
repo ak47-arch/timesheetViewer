@@ -237,7 +237,7 @@ app:
         dailyRateUsd: 200
         startDate: "2026-03-01"
         endDate: "2026-03-31"
-      - resourceId: RES-013
+      - resourceId: RES-
         name: Shubham Khojare
         dailyRateUsd: 200
         startDate: "2026-03-01"

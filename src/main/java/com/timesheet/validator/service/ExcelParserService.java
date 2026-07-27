@@ -3,12 +3,16 @@ package com.timesheet.validator.service;
 import com.timesheet.validator.domain.CellData;
 import com.timesheet.validator.domain.SheetMeta;
 import com.timesheet.validator.domain.UploadSession;
+import com.timesheet.validator.dto.MergedRegionDto;
 import com.timesheet.validator.repository.CellDataRepository;
 import com.timesheet.validator.repository.SheetMetaRepository;
 import com.timesheet.validator.repository.UploadSessionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFCellStyle;
+import org.apache.poi.xssf.usermodel.XSSFColor;
+import org.apache.poi.xssf.usermodel.XSSFFont;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +26,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.poi.ss.util.CellRangeAddress;
+
+import static org.apache.poi.util.HexDump.toHex;
 
 @Service
 @RequiredArgsConstructor
@@ -65,6 +74,8 @@ public class ExcelParserService {
     private final SheetMetaRepository     sheetMetaRepo;
     private final CellDataRepository      cellDataRepo;
 
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
     @Transactional
     public String parse(MultipartFile file, List<String> selectedRules) throws Exception {
         String sessionId = UUID.randomUUID().toString();
@@ -94,6 +105,10 @@ public class ExcelParserService {
                         .sessionId(sessionId).sheetName(sheetName)
                         .sheetIndex(si).rowCount(maxRow + 1).colCount(maxCol)
                         .build());
+
+
+
+
 
                 for (Row row : sheet) {
                     if (row == null) continue;
@@ -125,7 +140,7 @@ public class ExcelParserService {
                                 display = cell.getCellFormula();
                                 raw     = display;
                                 cells.add(buildCell(sessionId, sheetName, row.getRowNum(),
-                                        ci, display, raw, formula, type, isFirstRow));
+                                        ci, cell, display, raw, formula, type, isFirstRow));
                                 continue;
                             }
                         } else if (effectiveType == CellType.NUMERIC) {
@@ -169,7 +184,7 @@ public class ExcelParserService {
                         }
 
                         cells.add(buildCell(sessionId, sheetName, row.getRowNum(),
-                                ci, display, raw, formula, type, isFirstRow));
+                                ci, cell, display, raw, formula, type, isFirstRow));
                     }
                 }
                 log.info("[Parser] Sheet='{}' rows={} cols={}", sheetName, maxRow + 1, maxCol);
@@ -199,20 +214,338 @@ public class ExcelParserService {
         return sessionId;
     }
 
+
+    //add leaverPlanner parser
+    @Transactional
+    public String parseLeavePlanner(MultipartFile file) throws Exception {
+
+        String sessionId = UUID.randomUUID().toString();
+
+        log.info(
+                "[LeavePlanner Parser] Starting parse for file={} session={}",
+                file.getOriginalFilename(),
+                sessionId
+        );
+
+        try (InputStream is = file.getInputStream();
+             Workbook wb = new XSSFWorkbook(is)) {
+
+            FormulaEvaluator evaluator =
+                    wb.getCreationHelper().createFormulaEvaluator();
+
+            evaluator.setIgnoreMissingWorkbooks(true);
+
+            int sheetCount = wb.getNumberOfSheets();
+
+            List<SheetMeta> metas = new ArrayList<>();
+
+            List<CellData> cells = new ArrayList<>();
+
+            for (int si = 0; si < sheetCount; si++) {
+
+                Sheet sheet = wb.getSheetAt(si);
+
+                String sheetName = sheet.getSheetName();
+
+                int maxRow = sheet.getLastRowNum();
+
+                int maxCol = 0;
+
+                for (Row row : sheet) {
+
+                    if (row != null) {
+
+                        maxCol =
+                                Math.max(
+                                        maxCol,
+                                        row.getLastCellNum()
+                                );
+                    }
+                }
+
+                List<Integer> columnWidths = new ArrayList<>();
+
+                for (int c = 0; c < maxCol; c++) {
+
+                    columnWidths.add(sheet.getColumnWidth(c));
+
+                }
+
+                List<Short> rowHeights = new ArrayList<>();
+
+                for (int r = 0; r <= maxRow; r++) {
+
+                    Row row = sheet.getRow(r);
+
+                    rowHeights.add(
+
+                            row != null
+
+                                    ? row.getHeight()
+
+                                    : sheet.getDefaultRowHeight()
+
+                    );
+                }
+
+                List<MergedRegionDto> mergedRegions = new ArrayList<>();
+
+                for (CellRangeAddress region : sheet.getMergedRegions()) {
+
+                    mergedRegions.add(
+
+                            MergedRegionDto.builder()
+
+                                    .firstRow(region.getFirstRow())
+
+                                    .lastRow(region.getLastRow())
+
+                                    .firstColumn(region.getFirstColumn())
+
+                                    .lastColumn(region.getLastColumn())
+
+                                    .build()
+
+                    );
+                }
+
+//                metas.add(
+//                        SheetMeta.builder()
+//                                .sessionId(sessionId)
+//                                .sheetName(sheetName)
+//                                .sheetIndex(si)
+//                                .rowCount(maxRow + 1)
+//                                .colCount(maxCol)
+//                                .build()
+//                );
+
+                metas.add(
+                        SheetMeta.builder()
+                                .sessionId(sessionId)
+                                .sheetName(sheetName)
+                                .sheetIndex(si)
+                                .rowCount(maxRow + 1)
+                                .colCount(maxCol)
+                                .columnWidthsJson(
+                                        objectMapper.writeValueAsString(columnWidths)
+                                )
+                                .rowHeightsJson(
+                                        objectMapper.writeValueAsString(rowHeights)
+                                )
+                                .mergedRegionsJson(
+                                        objectMapper.writeValueAsString(mergedRegions)
+                                )
+                                .build()
+                );
+
+                for (Row row : sheet) {
+
+                    if (row == null) {
+                        continue;
+                    }
+
+                    boolean isFirstRow =
+                            row.getRowNum() == sheet.getFirstRowNum();
+
+                    for (int ci = 0; ci < maxCol; ci++) {
+
+                        Cell cell =
+                                row.getCell(
+                                        ci,
+                                        Row.MissingCellPolicy.CREATE_NULL_AS_BLANK
+                                );
+
+                        String formula = null;
+                        String display;
+                        String raw;
+                        String type = cell.getCellType().name();
+
+                        CellType effectiveType = cell.getCellType();
+
+                        double numericValue = 0;
+
+                        if (effectiveType == CellType.FORMULA) {
+
+                            formula = "=" + cell.getCellFormula();
+
+                            CellValue cv =
+                                    evaluator.evaluate(cell);
+
+                            effectiveType =
+                                    cv != null
+                                            ? cv.getCellType()
+                                            : CellType.BLANK;
+
+                            if (effectiveType == CellType.NUMERIC) {
+                                numericValue = cv.getNumberValue();
+                            }
+
+                        } else if (effectiveType == CellType.NUMERIC) {
+
+                            numericValue =
+                                    cell.getNumericCellValue();
+                        }
+
+                        if (effectiveType == CellType.NUMERIC &&
+                                (DateUtil.isCellDateFormatted(cell)
+                                        || isDateSerial(numericValue))) {
+
+                            LocalDate d =
+                                    DateUtil.getLocalDateTime(
+                                                    numericValue,
+                                                    false
+                                            )
+                                            .toLocalDate();
+
+                            display =
+                                    formatDateDisplay(d);
+
+                            raw =
+                                    d.format(ISO_FMT);
+
+                        } else if (effectiveType == CellType.NUMERIC) {
+
+                            display =
+                                    new DataFormatter()
+                                            .formatCellValue(
+                                                    cell,
+                                                    evaluator
+                                            );
+
+                            raw = display;
+
+                        } else {
+
+                            display =
+                                    new DataFormatter()
+                                            .formatCellValue(
+                                                    cell,
+                                                    evaluator
+                                            );
+
+                            raw = display;
+                        }
+
+                        cells.add(
+                                buildCell(
+                                        sessionId,
+                                        sheetName,
+                                        row.getRowNum(),
+                                        ci,
+                                        cell,
+                                        display,
+                                        raw,
+                                        formula,
+                                        type,
+                                        isFirstRow
+                                )
+                        );
+                    }
+                }
+            }
+
+            sheetMetaRepo.saveAll(metas);
+
+            log.info("Saved {} SheetMeta records", metas.size());
+
+            for (SheetMeta meta : metas) {
+                log.info("Sheet={}, Index={}, Session={}",
+                        meta.getSheetName(),
+                        meta.getSheetIndex(),
+                        meta.getSessionId());
+            }
+
+            for (int i = 0; i < cells.size(); i += 500) {
+
+                cellDataRepo.saveAll(
+                        cells.subList(
+                                i,
+                                Math.min(i + 500, cells.size())
+                        )
+                );
+            }
+
+            sessionRepo.save(
+                    UploadSession.builder()
+                            .sessionId(sessionId)
+                            .fileName(file.getOriginalFilename())
+                            .sheetCount(sheetCount)
+                            .status("LEAVE_PLANNER")
+                            .enabledRules("")
+                            .build()
+            );
+        }
+
+        return sessionId;
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private CellData buildCell(String sessionId, String sheetName, int row, int col,
-                               String display, String raw, String formula,
-                               String type, boolean isHeader) {
-        return CellData.builder()
-                .sessionId(sessionId).sheetName(sheetName)
-                .rowIdx(row).colIdx(col)
+//    private CellData buildCell(String sessionId, String sheetName, int row, int col, Cell cell,
+//                               String display, String raw, String formula,
+//                               String type, boolean isHeader) {
+//        return CellData.builder()
+//                .sessionId(sessionId).sheetName(sheetName)
+//                .rowIdx(row).colIdx(col)
+//                .displayValue(truncate(display, 2000))
+//                .rawValue(truncate(raw, 2000))
+//                .formula(truncate(formula, 2000))
+//                .cellType(type)
+//                .isHeader(isHeader)
+//                .build();
+//    }
+
+    private CellData buildCell(String sessionId,
+                               String sheetName,
+                               int row,
+                               int col,
+                               Cell cell,
+                               String display,
+                               String raw,
+                               String formula,
+                               String type,
+                               boolean isHeader) {
+
+        CellStyle style = cell != null ? cell.getCellStyle() : null;
+
+        Font font = null;
+        if (style != null) {
+            font = cell.getSheet()
+                    .getWorkbook()
+                    .getFontAt(style.getFontIndex());
+        }
+
+        CellData.CellDataBuilder builder = CellData.builder()
+                .sessionId(sessionId)
+                .sheetName(sheetName)
+                .rowIdx(row)
+                .colIdx(col)
                 .displayValue(truncate(display, 2000))
                 .rawValue(truncate(raw, 2000))
                 .formula(truncate(formula, 2000))
                 .cellType(type)
-                .isHeader(isHeader)
-                .build();
+                .isHeader(isHeader);
+
+        if (style != null) {
+            builder
+                    .horizontalAlignment(style.getAlignment().name())
+                    .verticalAlignment(style.getVerticalAlignment().name())
+                    .borderTop(style.getBorderTop().name())
+                    .borderBottom(style.getBorderBottom().name())
+                    .borderLeft(style.getBorderLeft().name())
+                    .borderRight(style.getBorderRight().name());
+        }
+
+        if (font != null) {
+            builder
+                    .fontSize(font.getFontHeightInPoints())
+                    .bold(font.getBold())
+                    .italic(font.getItalic())
+                    .backgroundColor(getBackgroundColor(style))
+                    .fontColor(getFontColor(font));
+        }
+
+        return builder.build();
     }
 
     /**
@@ -234,4 +567,50 @@ public class ExcelParserService {
         if (s == null) return null;
         return s.length() > max ? s.substring(0, max) : s;
     }
+
+
+    private String getBackgroundColor(CellStyle style) {
+
+        if (!(style instanceof XSSFCellStyle)) {
+            return null;
+        }
+
+        XSSFColor color =
+                ((XSSFCellStyle) style).getFillForegroundColorColor();
+
+        return toHex(color);
+    }
+
+    private String getFontColor(Font font) {
+
+        if (!(font instanceof XSSFFont)) {
+            return null;
+        }
+
+        XSSFColor color =
+                ((XSSFFont) font).getXSSFColor();
+
+        return toHex(color);
+    }
+
+    private String toHex(XSSFColor color) {
+
+        if (color == null) {
+            return null;
+        }
+
+        byte[] rgb = color.getRGB();
+
+        if (rgb == null) {
+            return null;
+        }
+
+        return String.format(
+                "#%02X%02X%02X",
+                rgb[0] & 0xFF,
+                rgb[1] & 0xFF,
+                rgb[2] & 0xFF
+        );
+    }
+
 }

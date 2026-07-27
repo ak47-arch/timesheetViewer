@@ -9,4 +9,6 @@
     <include file="classpath:db/changelog/changes/005-holiday-enabled.xml"/>
     <include file="classpath:db/changelog/changes/006-rule-message-template.xml"/>
     <include file="classpath:db/changelog/changes/007-validation-phase.xml"/>
+    <include file="classpath:db/changelog/changes/008-cell-data-style-columns.xml"/>
+    <include file="classpath:db/changelog/changes/009-sheetmeta-layout.xml"/>
 </databaseChangeLog>

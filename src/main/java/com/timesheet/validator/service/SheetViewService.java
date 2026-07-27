@@ -4,6 +4,7 @@ import com.timesheet.validator.domain.CellData;
 import com.timesheet.validator.domain.SheetMeta;
 import com.timesheet.validator.domain.ValidationIssue;
 import com.timesheet.validator.dto.CellDto;
+import com.timesheet.validator.dto.MergedRegionDto;
 import com.timesheet.validator.dto.SheetDto;
 import com.timesheet.validator.repository.CellDataRepository;
 import com.timesheet.validator.repository.SheetMetaRepository;
@@ -15,6 +16,9 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -23,6 +27,8 @@ public class SheetViewService {
     private final SheetMetaRepository sheetMetaRepo;
     private final CellDataRepository cellDataRepo;
     private final ValidationIssueRepository issueRepo;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
      * Returns all sheets for the session, each with a 2D grid of CellDto.
@@ -64,88 +70,207 @@ public class SheetViewService {
                     .collect(Collectors.groupingBy(CellData::getRowIdx, TreeMap::new, Collectors.toList()));
 
             // Find max col for consistent grid width
-            int maxCol = cells.stream().mapToInt(CellData::getColIdx).max().orElse(0) + 1;
-
-            List<List<CellDto>> rows = new ArrayList<>();
-            for (Map.Entry<Integer, List<CellData>> rowEntry : byRow.entrySet()) {
-                int ri = rowEntry.getKey();
-                Map<Integer, CellData> colMap = rowEntry.getValue().stream()
-                        .collect(Collectors.toMap(CellData::getColIdx, c -> c, (a, b) -> a));
+//            int maxCol = cells.stream().mapToInt(CellData::getColIdx).max().orElse(0) + 1;
+                int maxCol = meta.getColCount();
 
 
-                CellData employeeCell = colMap.get(0);
+//            List<List<CellDto>> rows = new ArrayList<>();
+//            for (Map.Entry<Integer, List<CellData>> rowEntry : byRow.entrySet()) {
+//                int ri = rowEntry.getKey();
+//                Map<Integer, CellData> colMap = rowEntry.getValue().stream()
+//                        .collect(Collectors.toMap(CellData::getColIdx, c -> c, (a, b) -> a));
+//
+//
+//                CellData employeeCell = colMap.get(0);
+//
+//                if(employeeCell != null){
+//                    log.info(
+//                            "VIEWER ROW -> rowIdx={} employee={}",
+//                            ri,
+//                            employeeCell.getDisplayValue()
+//                    );
+//                }
+//
+//
+//                List<CellDto> row = new ArrayList<>();
+//                for (int ci = 0; ci < maxCol; ci++) {
+//                    CellData c = colMap.get(ci);
+//                    String display = c != null ? nvl(c.getDisplayValue()) : "";
+//                    String formula = c != null ? c.getFormula() : null;
+//                    String type    = c != null ? nvl(c.getCellType()) : "BLANK";
+//                    boolean header = c != null && Boolean.TRUE.equals(c.getIsHeader());
+//
+//                    // Overlay validation issue if any
+//                    List<ValidationIssue> issues =
+//                            getIssues(issueMap,
+//                                    meta.getSheetName(),
+//                                    ri,
+//                                    ci);
+//
+//                    List<String> validationMessages = issues.stream()
+//                            .map(ValidationIssue::getMessage)
+//                            .collect(Collectors.toList());
+//
+//                    List<String> severities = issues.stream()
+//                            .map(ValidationIssue::getSeverity)
+//                            .collect(Collectors.toList());
+//
+//                    String highestSeverity = null;
+//
+//                    if (severities.contains("CRITICAL")) {
+//                        highestSeverity = "CRITICAL";
+//                    }
+//                    else if (severities.contains("WARNING")) {
+//                        highestSeverity = "WARNING";
+//                    }
+//
+//                    boolean employeeIssue =
+//                            ci == 0 &&
+//                                    issues != null &&
+//                                    !issues.isEmpty();
+//
+//                    // Build formula tooltip
+//                    String tooltip = buildTooltip(formula, display, type);
+//
+//                    row.add(CellDto.builder()
+//                            .rowIdx(ri).colIdx(ci)
+//                            .displayValue(display)
+//                            .formula(tooltip)
+//                            .cellType(type)
+//                            .isHeader(header)
+//                            .validationMessages(validationMessages)
+//                            .severities(severities)
+//                            .highestSeverity(highestSeverity)
+//                            .employeeIssue(employeeIssue)
+//                            .backgroundColor(c != null ? c.getBackgroundColor() : null)
+//                            .fontColor(c != null ? c.getFontColor() : null)
+//                            .fontSize(c != null ? c.getFontSize() : null)
+//                            .bold(c != null && Boolean.TRUE.equals(c.getBold()))
+//                            .italic(c != null && Boolean.TRUE.equals(c.getItalic()))
+//                            .horizontalAlignment(c != null ? c.getHorizontalAlignment() : null)
+//                            .verticalAlignment(c != null ? c.getVerticalAlignment() : null)
+//                            .borderTop(c != null ? c.getBorderTop() : null)
+//                            .borderBottom(c != null ? c.getBorderBottom() : null)
+//                            .borderLeft(c != null ? c.getBorderLeft() : null)
+//                            .borderRight(c != null ? c.getBorderRight() : null)
+//                            .build());
+//                }
+//                rows.add(row);
+//            }
 
-                if(employeeCell != null){
-                    log.info(
-                            "VIEWER ROW -> rowIdx={} employee={}",
+
+
+        List<List<CellDto>> rows = new ArrayList<>();
+
+        for (int ri = 0; ri < meta.getRowCount(); ri++) {
+
+            List<CellData> currentRow =
+                    byRow.getOrDefault(
                             ri,
-                            employeeCell.getDisplayValue()
+                            Collections.emptyList()
                     );
+
+            Map<Integer, CellData> colMap =
+                    currentRow.stream()
+                            .collect(Collectors.toMap(
+                                    CellData::getColIdx,
+                                    c -> c,
+                                    (a,b)->a
+                            ));
+
+            List<CellDto> row = new ArrayList<>();
+
+            for (int ci = 0; ci < maxCol; ci++) {
+
+                CellData c = colMap.get(ci);
+
+                // existing cell creation code stays exactly the same
+                String display = c != null ? nvl(c.getDisplayValue()) : "";
+                String formula = c != null ? c.getFormula() : null;
+                String type    = c != null ? nvl(c.getCellType()) : "BLANK";
+                boolean header = c != null && Boolean.TRUE.equals(c.getIsHeader());
+
+                // Overlay validation issue if any
+                List<ValidationIssue> issues =
+                        getIssues(issueMap,
+                                meta.getSheetName(),
+                                ri,
+                                ci);
+
+                List<String> validationMessages = issues.stream()
+                        .map(ValidationIssue::getMessage)
+                        .collect(Collectors.toList());
+
+                List<String> severities = issues.stream()
+                        .map(ValidationIssue::getSeverity)
+                        .collect(Collectors.toList());
+
+                String highestSeverity = null;
+
+                if (severities.contains("CRITICAL")) {
+                    highestSeverity = "CRITICAL";
+                }
+                else if (severities.contains("WARNING")) {
+                    highestSeverity = "WARNING";
                 }
 
+                boolean employeeIssue =
+                        ci == 0 &&
+                                issues != null &&
+                                !issues.isEmpty();
 
-                List<CellDto> row = new ArrayList<>();
-                for (int ci = 0; ci < maxCol; ci++) {
-                    CellData c = colMap.get(ci);
-                    String display = c != null ? nvl(c.getDisplayValue()) : "";
-                    String formula = c != null ? c.getFormula() : null;
-                    String type    = c != null ? nvl(c.getCellType()) : "BLANK";
-                    boolean header = c != null && Boolean.TRUE.equals(c.getIsHeader());
+                // Build formula tooltip
+                String tooltip = buildTooltip(formula, display, type);
 
-                    // Overlay validation issue if any
-                    List<ValidationIssue> issues =
-                            getIssues(issueMap,
-                                    meta.getSheetName(),
-                                    ri,
-                                    ci);
+                row.add(CellDto.builder()
+                        .rowIdx(ri).colIdx(ci)
+                        .displayValue(display)
+                        .formula(tooltip)
+                        .cellType(type)
+                        .isHeader(header)
+                        .validationMessages(validationMessages)
+                        .severities(severities)
+                        .highestSeverity(highestSeverity)
+                        .employeeIssue(employeeIssue)
+                        .backgroundColor(c != null ? c.getBackgroundColor() : null)
+                        .fontColor(c != null ? c.getFontColor() : null)
+                        .fontSize(c != null ? c.getFontSize() : null)
+                        .bold(c != null && Boolean.TRUE.equals(c.getBold()))
+                        .italic(c != null && Boolean.TRUE.equals(c.getItalic()))
+                        .horizontalAlignment(c != null ? c.getHorizontalAlignment() : null)
+                        .verticalAlignment(c != null ? c.getVerticalAlignment() : null)
+                        .borderTop(c != null ? c.getBorderTop() : null)
+                        .borderBottom(c != null ? c.getBorderBottom() : null)
+                        .borderLeft(c != null ? c.getBorderLeft() : null)
+                        .borderRight(c != null ? c.getBorderRight() : null)
+                        .build());
 
-                    List<String> validationMessages = issues.stream()
-                            .map(ValidationIssue::getMessage)
-                            .collect(Collectors.toList());
-
-                    List<String> severities = issues.stream()
-                            .map(ValidationIssue::getSeverity)
-                            .collect(Collectors.toList());
-
-                    String highestSeverity = null;
-
-                    if (severities.contains("CRITICAL")) {
-                        highestSeverity = "CRITICAL";
-                    }
-                    else if (severities.contains("WARNING")) {
-                        highestSeverity = "WARNING";
-                    }
-
-                    boolean employeeIssue =
-                            ci == 0 &&
-                                    issues != null &&
-                                    !issues.isEmpty();
-
-                    // Build formula tooltip
-                    String tooltip = buildTooltip(formula, display, type);
-
-                    row.add(CellDto.builder()
-                            .rowIdx(ri).colIdx(ci)
-                            .displayValue(display)
-                            .formula(tooltip)
-                            .cellType(type)
-                            .isHeader(header)
-                            .validationMessages(validationMessages)
-                            .severities(severities)
-                            .highestSeverity(highestSeverity)
-                            .employeeIssue(employeeIssue)
-                            .build());
-                }
-                rows.add(row);
             }
 
-            return SheetDto.builder()
-                    .sheetName(meta.getSheetName())
-                    .sheetIndex(meta.getSheetIndex())
-                    .rowCount(meta.getRowCount())
-                    .colCount(maxCol)
-                    .rows(rows)
-                    .build();
+            rows.add(row);
+
+        }
+
+
+//            return SheetDto.builder()
+//                    .sheetName(meta.getSheetName())
+//                    .sheetIndex(meta.getSheetIndex())
+//                    .rowCount(meta.getRowCount())
+//                    .colCount(maxCol)
+//                    .rows(rows)
+//                    .build();
+
+        return SheetDto.builder()
+                .sheetName(meta.getSheetName())
+                .sheetIndex(meta.getSheetIndex())
+                .rowCount(meta.getRowCount())
+//                .colCount(meta.getColCount())
+                .colCount(maxCol)
+                .rows(rows)
+                .columnWidths(parseColumnWidths(meta.getColumnWidthsJson()))
+                .rowHeights(parseRowHeights(meta.getRowHeightsJson()))
+                .mergedRegions(parseMergedRegions(meta.getMergedRegionsJson()))
+                .build();
     }
 
     public List<SheetMeta> getSheetMetas(String sessionId) {
@@ -229,4 +354,67 @@ public class SheetViewService {
     }
 
     private String nvl(String s) { return s == null ? "" : s; }
+
+    private List<Integer> parseColumnWidths(String json) {
+
+        if (json == null || json.isBlank()) {
+            return Collections.emptyList();
+        }
+
+        try {
+
+            return objectMapper.readValue(
+                    json,
+                    new TypeReference<List<Integer>>() {}
+            );
+
+        } catch (Exception e) {
+
+            log.warn("Unable to parse column widths", e);
+
+            return Collections.emptyList();
+        }
+    }
+
+    private List<Short> parseRowHeights(String json) {
+
+        if (json == null || json.isBlank()) {
+            return Collections.emptyList();
+        }
+
+        try {
+
+            return objectMapper.readValue(
+                    json,
+                    new TypeReference<List<Short>>() {}
+            );
+
+        } catch (Exception e) {
+
+            log.warn("Unable to parse row heights", e);
+
+            return Collections.emptyList();
+        }
+    }
+
+    private List<MergedRegionDto> parseMergedRegions(String json) {
+
+        if (json == null || json.isBlank()) {
+            return Collections.emptyList();
+        }
+
+        try {
+
+            return objectMapper.readValue(
+                    json,
+                    new TypeReference<List<MergedRegionDto>>() {}
+            );
+
+        } catch (Exception e) {
+
+            log.warn("Unable to parse merged regions", e);
+
+            return Collections.emptyList();
+        }
+    }
 }
