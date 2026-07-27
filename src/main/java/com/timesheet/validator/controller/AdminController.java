@@ -1,10 +1,26 @@
 package com.timesheet.validator.controller;
 
+
+import com.timesheet.validator.service.ExcelParserService;
+import com.timesheet.validator.service.LeavePlannerWorkbookService;
+import com.timesheet.validator.service.SheetViewService;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.multipart.MultipartFile;
+
+import javax.servlet.http.HttpSession;
+
+import com.timesheet.validator.service.LeavePlannerValidationService;
+import java.util.List;
+
+
 import com.timesheet.validator.config.AppProperties;
 import com.timesheet.validator.domain.*;
 import com.timesheet.validator.config.RuleCatalog;
 import com.timesheet.validator.repository.*;
-import com.timesheet.validator.security.AppUserDetailsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -14,6 +30,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.HashSet;
@@ -32,6 +49,17 @@ public class AdminController {
     private final PasswordEncoder        passwordEncoder;
     private final RuleCatalog            ruleCatalog;
     private final AppProperties props;
+
+    private final LeavePlannerValidationService leavePlannerValidationService;
+//    private final LeavePlannerWorkbookService leavePlannerWorkbookService;
+
+
+    private final ExcelParserService excelParserService;
+
+    private final SheetViewService sheetViewService;
+
+    private final UploadSessionRepository uploadSessionRepository;
+
 
     // ══════════════════════════════════════════════════════════════════════════
     // VALIDATION RULES (enable / disable from DB)
@@ -144,14 +172,14 @@ public class AdminController {
 
     @GetMapping("/resources/new")
     public String newResource(Model model) {
-        model.addAttribute("resource", new Resource());
+        model.addAttribute("resource", new com.timesheet.validator.domain.Resource());
         model.addAttribute("editMode", false);
         return "pages/admin/resource-form";
     }
 
     @GetMapping("/resources/edit/{id}")
     public String editResource(@PathVariable Long id, Model model) {
-        Resource r = resourceRepo.findById(id)
+        com.timesheet.validator.domain.Resource r = resourceRepo.findById(id)
                 .orElseThrow(() -> new RuntimeException("Resource not found: " + id));
         model.addAttribute("resource", r);
         model.addAttribute("editMode", true);
@@ -168,7 +196,7 @@ public class AdminController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             RedirectAttributes ra) {
-        Resource r = id != null ? resourceRepo.findById(id).orElse(new Resource()) : new Resource();
+        com.timesheet.validator.domain.Resource r = id != null ? resourceRepo.findById(id).orElse(new com.timesheet.validator.domain.Resource()) : new com.timesheet.validator.domain.Resource();
         r.setResourceId(resourceId.trim());
         r.setName(name.trim());
         r.setWorkingHoursPerDay(
@@ -259,6 +287,215 @@ public class AdminController {
         });
         return "redirect:/admin/holidays";
     }
+
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // LEAVE PLANNER
+    // ══════════════════════════════════════════════════════════════════════════
+
+    @GetMapping("/leave-planner")
+    public String leavePlanner(
+            Model model,
+            HttpSession session) {
+
+        /*
+         * Retrieve the current Leave Planner upload session.
+         *
+         * The uploaded workbook has already been parsed into
+         * CellData and SheetMeta tables.
+         */
+        String sessionId =
+                (String) session.getAttribute(
+                        "leavePlannerSessionId"
+                );
+
+        boolean plannerUploaded =
+                sessionId != null;
+
+        model.addAttribute(
+                "plannerUploaded",
+                plannerUploaded
+        );
+
+//        if (plannerUploaded) {
+//
+//            /*
+//             * Load sheet metadata.
+//             *
+//             * This is exactly how the Timesheet Viewer builds
+//             * the sheet tabs.
+//             */
+//            model.addAttribute(
+//                    "sheetMetas",
+//                    sheetViewService.getSheetMetas(sessionId)
+//            );
+//
+//            /*
+//             * Initially render the first worksheet.
+//             */
+//            model.addAttribute(
+//                    "sheet",
+//                    sheetViewService.getSheet(sessionId, 0)
+//            );
+//
+//            model.addAttribute(
+//                    "leavePlannerSessionId",
+//                    sessionId
+//            );
+//
+//            model.addAttribute(
+//                    "activeTab",
+//                    0
+//            );
+//        }
+
+        List<SheetMeta> metas =
+                sheetViewService.getSheetMetas(sessionId);
+
+        if (metas.isEmpty()) {
+
+            session.removeAttribute("leavePlannerSessionId");
+
+            plannerUploaded = false;
+
+            model.addAttribute("plannerUploaded", false);
+
+        } else {
+
+            model.addAttribute("sheetMetas", metas);
+
+            model.addAttribute(
+                    "sheet",
+                    sheetViewService.getSheet(sessionId, 0)
+            );
+
+            model.addAttribute(
+                    "leavePlannerSessionId",
+                    sessionId
+            );
+
+            model.addAttribute(
+                    "activeTab",
+                    0
+            );
+        }
+
+        return "pages/admin/leave-planner";
+    }
+
+    @PostMapping("/leave-planner/upload")
+    public String uploadLeavePlanner(
+            @RequestParam("file") MultipartFile file,
+            HttpSession session,
+            RedirectAttributes ra) {
+
+        /*
+         * Validate that a file was actually selected.
+         */
+        if (file == null || file.isEmpty()) {
+
+            ra.addFlashAttribute(
+                    "error",
+                    "Please select a Leave Planner file."
+            );
+
+            return "redirect:/admin/leave-planner";
+        }
+
+        String fileName =
+                file.getOriginalFilename();
+
+        /*
+         * Validate the file extension before attempting
+         * to process the workbook.
+         *
+         * Leave Planner currently supports only .xlsx files.
+         */
+        if (fileName == null ||
+                !fileName.toLowerCase().endsWith(".xlsx")) {
+
+            ra.addFlashAttribute(
+                    "error",
+                    "Only Excel (.xlsx) files are supported."
+            );
+
+            return "redirect:/admin/leave-planner";
+        }
+
+        /*
+         * Validate the workbook structure.
+         *
+         * LeavePlannerValidationService validates the
+         * required headers in all applicable monthly
+         * Leave Planner sheets.
+         */
+        if (!leavePlannerValidationService.validateTemplate(file)) {
+
+            ra.addFlashAttribute(
+                    "error",
+                    "Invalid Leave Planner format. Please use the approved template."
+            );
+
+            return "redirect:/admin/leave-planner";
+        }
+
+        try {
+
+            /*
+             * Parse the uploaded Leave Planner workbook using the
+             * shared Excel parser.
+             *
+             * The workbook is persisted exactly the same way as the
+             * Timesheet Viewer so that the existing SheetViewService
+             * can render it.
+             */
+            String sessionId =
+                    excelParserService.parseLeavePlanner(file);
+
+            /*
+             * Store only the session id.
+             *
+             * The workbook itself has already been persisted into
+             * CellData and SheetMeta tables.
+             */
+            session.setAttribute(
+                    "leavePlannerSessionId",
+                    sessionId
+            );
+
+            log.info(
+                    "Leave Planner uploaded successfully. Session={}",
+                    sessionId
+            );
+
+            ra.addFlashAttribute(
+                    "success",
+                    "Leave Planner uploaded successfully."
+            );
+
+        } catch (Exception e) {
+
+            /*
+             * Handle unexpected errors while reading the
+             * uploaded Excel workbook.
+             */
+            log.error(
+                    "Unable to parse uploaded Leave Planner file: {}",
+                    fileName,
+                    e
+            );
+
+            ra.addFlashAttribute(
+                    "error",
+                    "Unable to upload Leave Planner. Please try again."
+            );
+        }
+
+        return "redirect:/admin/leave-planner";
+    }
+
+
+
 
     // ══════════════════════════════════════════════════════════════════════════
     // USERS

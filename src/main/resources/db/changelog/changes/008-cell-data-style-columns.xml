@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+            http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <changeSet id="008-cell-data-style-columns" author="jatin">
+
+        <addColumn tableName="CELL_DATA">
+
+            <column name="BACKGROUND_COLOR" type="VARCHAR(20)"/>
+
+            <column name="FONT_COLOR" type="VARCHAR(20)"/>
+
+            <column name="FONT_SIZE" type="SMALLINT"/>
+
+            <column name="BOLD" type="BOOLEAN"/>
+
+            <column name="ITALIC" type="BOOLEAN"/>
+
+            <column name="HORIZONTAL_ALIGNMENT" type="VARCHAR(30)"/>
+
+            <column name="VERTICAL_ALIGNMENT" type="VARCHAR(30)"/>
+
+            <column name="BORDER_TOP" type="VARCHAR(20)"/>
+
+            <column name="BORDER_BOTTOM" type="VARCHAR(20)"/>
+
+            <column name="BORDER_LEFT" type="VARCHAR(20)"/>
+
+            <column name="BORDER_RIGHT" type="VARCHAR(20)"/>
+
+        </addColumn>
+
+    </changeSet>
+
+</databaseChangeLog>

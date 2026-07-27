@@ -12,4 +12,13 @@ public class SheetDto {
     private int colCount;
     /** rows[rowIdx][colIdx] */
     private List<List<CellDto>> rows;
+
+    /*
+     * Excel layout metadata.
+     */
+    private List<Integer> columnWidths;
+
+    private List<Short> rowHeights;
+
+    private List<MergedRegionDto> mergedRegions;
 }
