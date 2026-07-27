@@ -2521,6 +2521,7 @@ private void validateProjectWise(
     log.info("Sub Projects parsed  : {}", hierarchy.getSubProjects().size());
     log.info("Project Codes parsed : {}", hierarchy.getProjectCodes().size());
 
+    // ── Hours-based validation (existing rules) ────────────────
     validateProjects(
             sessionId,
             hierarchy,
@@ -2539,9 +2540,339 @@ private void validateProjectWise(
             projectCodeTotals,
             issues);
 
+    // ── Structural validation (new rules for bugs 1.1-1.8) ─────
+    Set<String> timesheetProjectNames = projectTotals.keySet().stream()
+            .map(ProjectKey::getProjectName)
+            .collect(Collectors.toSet());
+
+    Set<SubProjectKey> timesheetSubProjectKeys = subProjectTotals.keySet();
+
+    Set<String> timesheetSubProjectNames = timesheetSubProjectKeys.stream()
+            .map(SubProjectKey::getSubProjectName)
+            .collect(Collectors.toSet());
+
+    Set<ProjectCodeKey> timesheetProjectCodeKeys = projectCodeTotals.keySet();
+
+    Set<String> timesheetProjectCodeValues = timesheetProjectCodeKeys.stream()
+            .map(ProjectCodeKey::getProjectCode)
+            .collect(Collectors.toSet());
+
+    // PW-004: Missing Project in Project-wise sheet          (bug 1.1)
+    validateMissingProjects(sessionId, hierarchy, timesheetProjectNames, issues);
+
+    // PW-005: Extra/Invalid Project in Project-wise sheet     (bug 1.2)
+    validateExtraProjects(sessionId, hierarchy, timesheetProjectNames, issues);
+
+    // PW-006: Missing Sub-Project in Project-wise sheet       (bug 1.3)
+    validateMissingSubProjects(sessionId, hierarchy, timesheetSubProjectKeys, issues);
+
+    // PW-007: Wrong Project-SubProject mapping                (bug 1.4)
+    // PW-008: Extra/Invalid Sub-Project in Project-wise sheet (bug 1.5)
+    validateSubProjectStructure(sessionId, hierarchy, timesheetSubProjectKeys, timesheetSubProjectNames, issues);
+
+    // PW-009: Missing Project Code in Project-wise sheet      (bug 1.6)
+    validateMissingProjectCodes(sessionId, hierarchy, timesheetProjectCodeKeys, issues);
+
+    // PW-010: Wrong SubProject-ProjectCode mapping            (bug 1.7)
+    // PW-011: Extra/Invalid Project Code in Project-wise sheet(bug 1.8)
+    validateProjectCodeStructure(sessionId, hierarchy, timesheetProjectCodeKeys, timesheetProjectCodeValues, issues);
+
     log.info("Project Wise Validation completed.");
 }
 
+
+// =================================================================
+// NEW STRUCTURAL VALIDATION METHODS (Bugs 1.1 - 1.8)
+// =================================================================
+
+/**
+ * PW-004
+ *
+ * Detects projects present in the Timesheet but missing from the
+ * Project-wise sheet. (Bug 1.1)
+ */
+private void validateMissingProjects(
+        String sessionId,
+        ProjectWiseHierarchy hierarchy,
+        Set<String> timesheetProjectNames,
+        List<ValidationIssue> issues) {
+
+    log.info("Starting PW-004 (Missing Project) validation...");
+
+    for (String projectName : timesheetProjectNames) {
+
+        if (!hierarchy.containsProject(projectName)) {
+
+            log.warn("PW-004 failed. Project='{}' missing from Project-wise sheet.", projectName);
+
+            issues.add(projectWiseIssue(
+                    sessionId,
+                    "PW-004",
+                    "CRITICAL",
+                    -1,
+                    -1,
+                    "Project-wise",
+                    String.format(
+                            "Project '%s' is present in the Timesheet but missing from the Project-wise sheet.",
+                            projectName)));
+        }
+    }
+
+    log.info("Completed PW-004 validation.");
+}
+
+
+/**
+ * PW-005
+ *
+ * Detects extra/invalid projects in the Project-wise sheet that
+ * do not exist in the Timesheet data. (Bug 1.2)
+ */
+private void validateExtraProjects(
+        String sessionId,
+        ProjectWiseHierarchy hierarchy,
+        Set<String> timesheetProjectNames,
+        List<ValidationIssue> issues) {
+
+    log.info("Starting PW-005 (Extra Project) validation...");
+
+    for (ProjectSummary project : hierarchy.getProjects()) {
+
+        if (!timesheetProjectNames.contains(project.getProjectName())) {
+
+            log.warn("PW-005 failed. Extra Project='{}' not found in Timesheet.", project.getProjectName());
+
+            issues.add(projectWiseIssue(
+                    sessionId,
+                    "PW-005",
+                    "CRITICAL",
+                    project.getHoursCell(),
+                    String.format(
+                            "Invalid Project '%s' detected in Project-wise sheet. Project does not exist in Timesheet data.",
+                            project.getProjectName())));
+        }
+    }
+
+    log.info("Completed PW-005 validation.");
+}
+
+
+/**
+ * PW-006
+ *
+ * Detects sub-projects present in the Timesheet but missing from the
+ * Project-wise sheet. (Bug 1.3)
+ */
+private void validateMissingSubProjects(
+        String sessionId,
+        ProjectWiseHierarchy hierarchy,
+        Set<SubProjectKey> timesheetSubProjectKeys,
+        List<ValidationIssue> issues) {
+
+    log.info("Starting PW-006 (Missing Sub-Project) validation...");
+
+    for (SubProjectKey tsKey : timesheetSubProjectKeys) {
+
+        if (!hierarchy.containsSubProject(tsKey.getProjectName(), tsKey.getSubProjectName())) {
+
+            log.warn("PW-006 failed. Sub-Project='{}' under Project='{}' missing from Project-wise sheet.",
+                    tsKey.getSubProjectName(), tsKey.getProjectName());
+
+            issues.add(projectWiseIssue(
+                    sessionId,
+                    "PW-006",
+                    "CRITICAL",
+                    -1,
+                    -1,
+                    "Project-wise",
+                    String.format(
+                            "Sub-Project '%s' under Project '%s' is present in the Timesheet but missing from the Project-wise sheet.",
+                            tsKey.getSubProjectName(),
+                            tsKey.getProjectName())));
+        }
+    }
+
+    log.info("Completed PW-006 validation.");
+}
+
+
+/**
+ * PW-007 / PW-008
+ *
+ * For each sub-project in the Project-wise hierarchy:
+ * - If the (project, subProject) pair doesn't exist in the Timesheet:
+ *   - If the sub-project name exists in the Timesheet (under a different project)
+ *     -> PW-007: Wrong Project-SubProject mapping (bug 1.4)
+ *   - If the sub-project name does NOT exist in the Timesheet at all
+ *     -> PW-008: Invalid/Extra Sub-Project (bug 1.5)
+ */
+private void validateSubProjectStructure(
+        String sessionId,
+        ProjectWiseHierarchy hierarchy,
+        Set<SubProjectKey> timesheetSubProjectKeys,
+        Set<String> timesheetSubProjectNames,
+        List<ValidationIssue> issues) {
+
+    log.info("Starting PW-007/PW-008 (Sub-Project structure) validation...");
+
+    for (SubProjectSummary sp : hierarchy.getSubProjects()) {
+
+        SubProjectKey key = new SubProjectKey(sp.getProjectName(), sp.getSubProjectName());
+
+        if (timesheetSubProjectKeys.contains(key)) {
+            // This exact (project, subProject) pair exists in Timesheet.
+            // Hours are validated by PW-002, so skip here.
+            continue;
+        }
+
+        // The pair is not in Timesheet. Check if the sub-project name exists at all.
+        if (timesheetSubProjectNames.contains(sp.getSubProjectName())) {
+
+            // Sub-project name exists in Timesheet but under a different project -> wrong mapping
+            log.warn("PW-007 failed. Sub-Project='{}' mapped under wrong Project='{}'.",
+                    sp.getSubProjectName(), sp.getProjectName());
+
+            issues.add(projectWiseIssue(
+                    sessionId,
+                    "PW-007",
+                    "CRITICAL",
+                    sp.getHoursCell(),
+                    String.format(
+                            "Invalid Sub-project mapping. Sub-Project '%s' for Project '%s'.",
+                            sp.getSubProjectName(),
+                            sp.getProjectName())));
+
+        } else {
+
+            // Sub-project name does not exist in Timesheet at all -> extra/invalid
+            log.warn("PW-008 failed. Extra Sub-Project='{}' under Project='{}' not found in Timesheet.",
+                    sp.getSubProjectName(), sp.getProjectName());
+
+            issues.add(projectWiseIssue(
+                    sessionId,
+                    "PW-008",
+                    "CRITICAL",
+                    sp.getHoursCell(),
+                    String.format(
+                            "Invalid Sub-Project detected in Project-wise sheet. Sub-Project '%s' does not exist in Timesheet data.",
+                            sp.getSubProjectName())));
+        }
+    }
+
+    log.info("Completed PW-007/PW-008 validation.");
+}
+
+
+/**
+ * PW-009
+ *
+ * Detects project codes present in the Timesheet but missing from the
+ * Project-wise sheet. (Bug 1.6)
+ */
+private void validateMissingProjectCodes(
+        String sessionId,
+        ProjectWiseHierarchy hierarchy,
+        Set<ProjectCodeKey> timesheetProjectCodeKeys,
+        List<ValidationIssue> issues) {
+
+    log.info("Starting PW-009 (Missing Project Code) validation...");
+
+    for (ProjectCodeKey tsKey : timesheetProjectCodeKeys) {
+
+        if (!hierarchy.containsProjectCode(tsKey.getProjectName(), tsKey.getSubProjectName(), tsKey.getProjectCode())) {
+
+            log.warn("PW-009 failed. ProjectCode='{}' under SubProject='{}' of Project='{}' missing from Project-wise sheet.",
+                    tsKey.getProjectCode(), tsKey.getSubProjectName(), tsKey.getProjectName());
+
+            issues.add(projectWiseIssue(
+                    sessionId,
+                    "PW-009",
+                    "CRITICAL",
+                    -1,
+                    -1,
+                    "Project-wise",
+                    String.format(
+                            "Project Code '%s' under Sub-Project '%s' of Project '%s' is present in the Timesheet but missing from the Project-wise sheet.",
+                            tsKey.getProjectCode(),
+                            tsKey.getSubProjectName(),
+                            tsKey.getProjectName())));
+        }
+    }
+
+    log.info("Completed PW-009 validation.");
+}
+
+
+/**
+ * PW-010 / PW-011
+ *
+ * For each project code in the Project-wise hierarchy:
+ * - If the (project, subProject, projectCode) triple doesn't exist in the Timesheet:
+ *   - If the project code value exists in the Timesheet (under a different sub-project)
+ *     -> PW-010: Wrong SubProject-ProjectCode mapping (bug 1.7)
+ *   - If the project code does NOT exist in the Timesheet at all
+ *     -> PW-011: Invalid/Extra Project Code (bug 1.8)
+ */
+private void validateProjectCodeStructure(
+        String sessionId,
+        ProjectWiseHierarchy hierarchy,
+        Set<ProjectCodeKey> timesheetProjectCodeKeys,
+        Set<String> timesheetProjectCodeValues,
+        List<ValidationIssue> issues) {
+
+    log.info("Starting PW-010/PW-011 (Project Code structure) validation...");
+
+    for (ProjectCodeSummary pc : hierarchy.getProjectCodes()) {
+
+        ProjectCodeKey key = new ProjectCodeKey(
+                pc.getProjectName(), pc.getSubProjectName(), pc.getProjectCode());
+
+        if (timesheetProjectCodeKeys.contains(key)) {
+            // This exact triple exists in Timesheet. Hours are validated by PW-003, skip.
+            continue;
+        }
+
+        // The triple is not in Timesheet. Check if the project code value exists at all.
+        if (timesheetProjectCodeValues.contains(pc.getProjectCode())) {
+
+            // Project code exists in Timesheet but under a different sub-project -> wrong mapping
+            log.warn("PW-010 failed. ProjectCode='{}' mapped under wrong Sub-Project='{}' of Project='{}'.",
+                    pc.getProjectCode(), pc.getSubProjectName(), pc.getProjectName());
+
+            issues.add(projectWiseIssue(
+                    sessionId,
+                    "PW-010",
+                    "CRITICAL",
+                    pc.getHoursCell(),
+                    String.format(
+                            "Invalid PCode mapping. PCode '%s' does not belong to Sub-Project '%s'.",
+                            pc.getProjectCode(),
+                            pc.getSubProjectName())));
+
+        } else {
+
+            // Project code does not exist in Timesheet at all -> extra/invalid
+            log.warn("PW-011 failed. Extra ProjectCode='{}' under Sub-Project='{}' not found in Timesheet.",
+                    pc.getProjectCode(), pc.getSubProjectName());
+
+            issues.add(projectWiseIssue(
+                    sessionId,
+                    "PW-011",
+                    "CRITICAL",
+                    pc.getHoursCell(),
+                    String.format(
+                            "Invalid Projectcode detected in Project-wise sheet. Projectcode '%s' does not exist in Timesheet data.",
+                            pc.getProjectCode())));
+        }
+    }
+
+    log.info("Completed PW-010/PW-011 validation.");
+}
+
+
+// =================================================================
+// EXISTING HOURS-BASED VALIDATION METHODS (unchanged below)
+// =================================================================
 
 
 /**
@@ -2722,11 +3053,9 @@ private void validateSubProjects(
         }
 
 
-
-
-
-
-
+    // ======================================================
+    // SUMMARY VALIDATION
+    // ======================================================
     // ======================================================
     // SUMMARY VALIDATION
     // ======================================================
