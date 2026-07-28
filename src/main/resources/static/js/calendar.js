@@ -56,8 +56,12 @@
     } catch (e) {
       state.events = [];
     }
+    // Dates that are public holidays — leave cannot be added on these.
+    state.holidays = new Set(state.events.filter(e => e.kind === "HOLIDAY").map(e => e.date));
     render(start, end);
   }
+
+  const isHoliday = (dateStr) => state.holidays && state.holidays.has(dateStr);
 
   function eventsByDate() {
     const map = {};
@@ -93,11 +97,14 @@
       evs.sort((a,b) => (rank[a.kind]-rank[b.kind]));
       for (const ev of evs) cell.appendChild(chip(ev));
 
-      // Clicking an in-month cell opens the leave modal pre-filled.
+      // Clicking an in-month cell opens the leave modal — except public holidays,
+      // where leave can't be added.
       if (state.canRegister && inMonth) {
-        cell.classList.add("clickable");
+        const holiday = isHoliday(key);
+        cell.classList.add(holiday ? "holiday-locked" : "clickable");
         cell.addEventListener("click", (e) => {
-          if (e.target.classList.contains("chip-x")) return; // handled separately
+          if (e.target.classList.contains("chip-x")) return; // delete handled on the chip
+          if (isHoliday(key)) { showToast("Public holiday — leave can't be added on this date."); return; }
           openModal(key, key);
         });
       }
@@ -201,16 +208,25 @@
     if (!end) end = start;
     if (end < start) { setMsg("End date can't be before start date.", "err"); return; }
 
+    // Block a single-day holiday outright; the server also enforces this.
+    if (start === end && isHoliday(start)) {
+      setMsg("That date is a public holiday — leave can't be added.", "err"); return;
+    }
+
     const params = new URLSearchParams({
       startDate: start, endDate: end,
       leaveType: document.getElementById("leaveType").value,
       reason: document.getElementById("leaveReason").value
     });
     const data = await post("/calendar/leave", params);
-    if (data && data.ok) {
+    if (data && data.ok && data.added > 0) {
       setMsg(data.message || "Added.", "ok");
       await load();
-      setTimeout(closeModal, 700);
+      setTimeout(closeModal, 800);
+    } else if (data && data.ok) {
+      // Request succeeded but nothing was added (holiday/weekend/already booked).
+      setMsg(data.message || "No leave added.", "err");
+      await load();
     } else {
       setMsg((data && data.message) || "Could not register leave.", "err");
     }
@@ -235,6 +251,21 @@
   function escapeHtml(s) {
     return (s || "").replace(/[&<>"']/g, c =>
       ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+  }
+
+  let toastTimer = null;
+  function showToast(msg) {
+    let t = document.getElementById("calToast");
+    if (!t) {
+      t = document.createElement("div");
+      t.id = "calToast";
+      t.className = "cal-toast";
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
   }
 
   // ── nav ──────────────────────────────────────────────────────────────────────

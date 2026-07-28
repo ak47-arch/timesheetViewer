@@ -74,17 +74,33 @@ public class CalendarController {
         LocalDate end   = (endDate == null || endDate.isBlank()) ? start : LocalDate.parse(endDate);
 
         var r = calendar.registerLeave(me, start, end, leaveType, reason, principal.getUsername());
+
+        String message;
+        if (r.added == 0) {
+            if (r.skippedHoliday > 0 && r.skippedWeekend == 0 && r.skippedExisting == 0)
+                message = "No leave added — those dates are public holidays.";
+            else if (r.skippedExisting > 0 && r.skippedHoliday == 0 && r.skippedWeekend == 0)
+                message = "No leave added — already booked.";
+            else if (r.skippedWeekend > 0 && r.skippedHoliday == 0 && r.skippedExisting == 0)
+                message = "No leave added — those dates are weekends.";
+            else
+                message = "No leave added — the selected dates are weekends, public holidays, or already booked.";
+        } else {
+            int skipped = r.skippedWeekend + r.skippedHoliday + r.skippedExisting;
+            message = r.added + " day(s) added"
+                    + (skipped > 0
+                       ? " · skipped " + r.skippedWeekend + " weekend, " + r.skippedHoliday
+                         + " holiday, " + r.skippedExisting + " already booked"
+                       : "");
+        }
+
         return Map.of(
                 "ok", true,
                 "added", r.added,
                 "skippedWeekend", r.skippedWeekend,
                 "skippedHoliday", r.skippedHoliday,
                 "skippedExisting", r.skippedExisting,
-                "message", r.added + " day(s) added"
-                        + (r.skippedWeekend + r.skippedHoliday + r.skippedExisting > 0
-                           ? " · " + r.skippedWeekend + " weekend, " + r.skippedHoliday
-                             + " holiday, " + r.skippedExisting + " already booked skipped"
-                           : ""));
+                "message", message);
     }
 
     /** Delete one of the user's own self-registered leaves. */
