@@ -30,6 +30,10 @@
         <li sec:authorize="isAuthenticated()">
             <a th:href="@{/timesheet/my-entries}" class="nav-link"><i class="fa fa-list"></i> My Entries</a>
         </li>
+        <!-- Leave calendar: all roles -->
+        <li sec:authorize="isAuthenticated()">
+            <a th:href="@{/calendar}" class="nav-link"><i class="fa fa-calendar-day"></i> Leave Calendar</a>
+        </li>
         <!-- All entries: MANAGER + ADMIN -->
         <li sec:authorize="hasAnyRole('MANAGER','ADMIN')">
             <a th:href="@{/timesheet/all-entries}" class="nav-link"><i class="fa fa-users"></i> All Entries</a>

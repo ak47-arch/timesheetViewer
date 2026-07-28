@@ -14,6 +14,7 @@ import org.springframework.web.multipart.MultipartFile;
 import javax.servlet.http.HttpSession;
 
 import com.timesheet.validator.service.LeavePlannerValidationService;
+import com.timesheet.validator.service.LeavePlannerImportService;
 import java.util.List;
 
 
@@ -51,6 +52,7 @@ public class AdminController {
     private final AppProperties props;
 
     private final LeavePlannerValidationService leavePlannerValidationService;
+    private final LeavePlannerImportService     leavePlannerImportService;
 //    private final LeavePlannerWorkbookService leavePlannerWorkbookService;
 
 
@@ -468,10 +470,25 @@ public class AdminController {
                     sessionId
             );
 
-            ra.addFlashAttribute(
-                    "success",
-                    "Leave Planner uploaded successfully."
-            );
+            /*
+             * Import the parsed planner into structured, durable LeaveEntry
+             * rows so the leaves show up on every user's leave calendar.
+             * (Without this the planner lives only as cells in this admin's
+             * HTTP session and no other user can see it.)
+             */
+            LeavePlannerImportService.ImportSummary summary =
+                    leavePlannerImportService.importFromSession(sessionId);
+
+            String msg = "Leave Planner uploaded — imported "
+                    + summary.getLeaveDaysImported() + " leave day(s) across "
+                    + summary.getMonthlySheets() + " month sheet(s).";
+
+            if (!summary.getUnmatchedNames().isEmpty()) {
+                msg += " Unmatched names (no roster resource): "
+                        + String.join(", ", summary.getUnmatchedNames()) + ".";
+            }
+
+            ra.addFlashAttribute("success", msg);
 
         } catch (Exception e) {
 
@@ -495,30 +512,6 @@ public class AdminController {
     }
 
 
-    //download template
-    @GetMapping("/leave-planner/template")
-    public ResponseEntity<Resource> downloadLeavePlannerTemplate() throws IOException {
-
-        Resource resource =
-                new ClassPathResource("downloads/LeavePlannerTemplate.xlsx");
-
-        if (!resource.exists()) {
-            throw new RuntimeException("Leave Planner template not found.");
-        }
-
-        return ResponseEntity.ok()
-                .header(
-                        HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=LeavePlannerTemplate.xlsx"
-                )
-                .contentType(
-                        MediaType.parseMediaType(
-                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-                )
-                .contentLength(resource.contentLength())
-                .body(resource);
-    }
 
 
     // ══════════════════════════════════════════════════════════════════════════

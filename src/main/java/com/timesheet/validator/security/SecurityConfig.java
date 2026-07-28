@@ -60,6 +60,9 @@ public class SecurityConfig {
                 // ── All authenticated users ────────────────────────────────────
                 .antMatchers("/timesheet", "/timesheet/**")
                     .hasAnyRole("USER", "MANAGER", "ADMIN")
+                // Leave calendar — every user can view + register their own leave
+                .antMatchers("/calendar", "/calendar/**")
+                    .hasAnyRole("USER", "MANAGER", "ADMIN")
 
                 // ── Anything else needs authentication ─────────────────────────
                 .anyRequest().authenticated()

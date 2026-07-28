@@ -11,4 +11,5 @@
     <include file="classpath:db/changelog/changes/007-validation-phase.xml"/>
     <include file="classpath:db/changelog/changes/008-cell-data-style-columns.xml"/>
     <include file="classpath:db/changelog/changes/009-sheetmeta-layout.xml"/>
+    <include file="classpath:db/changelog/changes/010-leave-entry.xml"/>
 </databaseChangeLog>
