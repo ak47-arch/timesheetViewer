@@ -67,6 +67,17 @@ public class ProjectWiseParser {
 
     private static final String TOTAL_SUFFIX = " Total";
 
+    // Hierarchy table column header patterns to skip
+    private static final java.util.Set<String> HIERARCHY_HEADERS = java.util.Set.of(
+            "Sub Project",
+            "Sub Project (if applicable)",
+            "SubProject",
+            "Project Code",
+            "Project Code (Mandatory)",
+            "Projectcode",
+            "Sum of Hours",
+            "Hours");
+
    
 
     public ProjectWiseHierarchy parse(List<CellData> projectWiseCells) {
@@ -185,6 +196,16 @@ public class ProjectWiseParser {
             }
 
             /*
+            * Ignore hierarchy header rows.
+            * Catches column header text like "Sub Project (if applicable)"
+            * and "Project Code (Mandatory)" that appear in the first row
+            * of the hierarchy table.
+            */
+            if (isHierarchyHeader(subProject, projectCode)) {
+                continue;
+            }
+
+            /*
             * Ignore Sub Project Total rows.
             *
             * Example:
@@ -273,6 +294,16 @@ public class ProjectWiseParser {
             String value) {
 
         return value.endsWith(TOTAL_SUFFIX);
+    }
+
+    /**
+     * Returns true if the given cell values match a hierarchy column header.
+     * This prevents column header text (e.g., "Sub Project (if applicable)")
+     * from being parsed as actual data entries.
+     */
+    private boolean isHierarchyHeader(String subProject, String projectCode) {
+        return (subProject != null && HIERARCHY_HEADERS.contains(subProject.trim()))
+                || (projectCode != null && HIERARCHY_HEADERS.contains(projectCode.trim()));
     }
     
 
