@@ -2558,20 +2558,20 @@ private void validateProjectWise(
             .collect(Collectors.toSet());
 
     // PW-004: Missing Project in Project-wise sheet          (bug 1.1)
-    validateMissingProjects(sessionId, hierarchy, timesheetProjectNames, issues);
+    validateMissingProjects(sessionId, hierarchy, timesheetProjectNames, timesheetSubProjectKeys, issues);
 
     // PW-005: Extra/Invalid Project in Project-wise sheet     (bug 1.2)
     validateExtraProjects(sessionId, hierarchy, timesheetProjectNames, issues);
 
     // PW-006: Missing Sub-Project in Project-wise sheet       (bug 1.3)
-    validateMissingSubProjects(sessionId, hierarchy, timesheetSubProjectKeys, issues);
+    validateMissingSubProjects(sessionId, hierarchy, timesheetSubProjectKeys, timesheetProjectCodeKeys, issues);
 
     // PW-007: Wrong Project-SubProject mapping                (bug 1.4)
     // PW-008: Extra/Invalid Sub-Project in Project-wise sheet (bug 1.5)
     validateSubProjectStructure(sessionId, hierarchy, timesheetSubProjectKeys, timesheetSubProjectNames, issues);
 
     // PW-009: Missing Project Code in Project-wise sheet      (bug 1.6)
-    validateMissingProjectCodes(sessionId, hierarchy, timesheetProjectCodeKeys, issues);
+    validateMissingProjectCodes(sessionId, hierarchy, timesheetProjectCodeKeys, timesheetSubProjectKeys, issues);
 
     // PW-010: Wrong SubProject-ProjectCode mapping            (bug 1.7)
     // PW-011: Extra/Invalid Project Code in Project-wise sheet(bug 1.8)
@@ -2595,6 +2595,7 @@ private void validateMissingProjects(
         String sessionId,
         ProjectWiseHierarchy hierarchy,
         Set<String> timesheetProjectNames,
+        Set<SubProjectKey> timesheetSubProjectKeys,
         List<ValidationIssue> issues) {
 
     log.info("Starting PW-004 (Missing Project) validation...");
@@ -2605,12 +2606,16 @@ private void validateMissingProjects(
 
             log.warn("PW-004 failed. Project='{}' missing from Project-wise sheet.", projectName);
 
+            // Try to find a cell reference: look for a sub-project that belongs to this
+            // project in the Timesheet; if found in the hierarchy, use its row.
+            int cellRow = findMissingProjectRow(projectName, timesheetSubProjectKeys, hierarchy);
+
             issues.add(projectWiseIssue(
                     sessionId,
                     "PW-004",
                     "CRITICAL",
-                    -1,
-                    -1,
+                    cellRow >= 0 ? cellRow : 2,
+                    3,
                     "Project-wise",
                     String.format(
                             "Project '%s' is present in the Timesheet but missing from the Project-wise sheet.",
@@ -2646,7 +2651,9 @@ private void validateExtraProjects(
                     sessionId,
                     "PW-005",
                     "CRITICAL",
-                    project.getHoursCell(),
+                    project.getHoursCell().getRow(),
+                    0,
+                    "Project",
                     String.format(
                             "Invalid Project '%s' detected in Project-wise sheet. Project does not exist in Timesheet data.",
                             project.getProjectName())));
@@ -2667,6 +2674,7 @@ private void validateMissingSubProjects(
         String sessionId,
         ProjectWiseHierarchy hierarchy,
         Set<SubProjectKey> timesheetSubProjectKeys,
+        Set<ProjectCodeKey> timesheetProjectCodeKeys,
         List<ValidationIssue> issues) {
 
     log.info("Starting PW-006 (Missing Sub-Project) validation...");
@@ -2678,12 +2686,16 @@ private void validateMissingSubProjects(
             log.warn("PW-006 failed. Sub-Project='{}' under Project='{}' missing from Project-wise sheet.",
                     tsKey.getSubProjectName(), tsKey.getProjectName());
 
+            // Try to find a cell reference: look for a project code that belongs to this
+            // sub-project in the Timesheet; if found in the hierarchy, use its row.
+            int cellRow = findMissingSubProjectRow(tsKey, timesheetProjectCodeKeys, hierarchy);
+
             issues.add(projectWiseIssue(
                     sessionId,
                     "PW-006",
                     "CRITICAL",
-                    -1,
-                    -1,
+                    cellRow >= 0 ? cellRow : 2,
+                    4,
                     "Project-wise",
                     String.format(
                             "Sub-Project '%s' under Project '%s' is present in the Timesheet but missing from the Project-wise sheet.",
@@ -2736,7 +2748,9 @@ private void validateSubProjectStructure(
                     sessionId,
                     "PW-007",
                     "CRITICAL",
-                    sp.getHoursCell(),
+                    sp.getHoursCell().getRow(),
+                    4,
+                    "Sub Project",
                     String.format(
                             "Invalid Sub-project mapping. Sub-Project '%s' for Project '%s'.",
                             sp.getSubProjectName(),
@@ -2752,7 +2766,9 @@ private void validateSubProjectStructure(
                     sessionId,
                     "PW-008",
                     "CRITICAL",
-                    sp.getHoursCell(),
+                    sp.getHoursCell().getRow(),
+                    4,
+                    "Sub Project",
                     String.format(
                             "Invalid Sub-Project detected in Project-wise sheet. Sub-Project '%s' does not exist in Timesheet data.",
                             sp.getSubProjectName())));
@@ -2773,23 +2789,39 @@ private void validateMissingProjectCodes(
         String sessionId,
         ProjectWiseHierarchy hierarchy,
         Set<ProjectCodeKey> timesheetProjectCodeKeys,
+        Set<SubProjectKey> timesheetSubProjectKeys,
         List<ValidationIssue> issues) {
 
     log.info("Starting PW-009 (Missing Project Code) validation...");
 
     for (ProjectCodeKey tsKey : timesheetProjectCodeKeys) {
 
+        // If the project code value exists anywhere in the hierarchy (even under a
+        // different sub-project or null sub-project), it is not "missing" — it is a
+        // mapping issue handled by PW-010. Skip PW-009 in that case.
         if (!hierarchy.containsProjectCode(tsKey.getProjectName(), tsKey.getSubProjectName(), tsKey.getProjectCode())) {
+
+            // Check if the project code value exists somewhere in the hierarchy
+            if (hierarchy.getProjectCodeValues().contains(tsKey.getProjectCode())) {
+                // It's a mapping issue, not missing — skip PW-009
+                log.debug("PW-009 skipped for ProjectCode='{}' — value exists in hierarchy under a different path.",
+                        tsKey.getProjectCode());
+                continue;
+            }
 
             log.warn("PW-009 failed. ProjectCode='{}' under SubProject='{}' of Project='{}' missing from Project-wise sheet.",
                     tsKey.getProjectCode(), tsKey.getSubProjectName(), tsKey.getProjectName());
+
+            // Try to find a cell reference: look for a sub-project that belongs to this
+            // project code's parent in the Timesheet; if found in the hierarchy, use its row.
+            int cellRow = findMissingProjectCodeRow(tsKey, timesheetSubProjectKeys, hierarchy);
 
             issues.add(projectWiseIssue(
                     sessionId,
                     "PW-009",
                     "CRITICAL",
-                    -1,
-                    -1,
+                    cellRow >= 0 ? cellRow : 2,
+                    5,
                     "Project-wise",
                     String.format(
                             "Project Code '%s' under Sub-Project '%s' of Project '%s' is present in the Timesheet but missing from the Project-wise sheet.",
@@ -2839,15 +2871,21 @@ private void validateProjectCodeStructure(
             log.warn("PW-010 failed. ProjectCode='{}' mapped under wrong Sub-Project='{}' of Project='{}'.",
                     pc.getProjectCode(), pc.getSubProjectName(), pc.getProjectName());
 
+            String subProjectLabel = pc.getSubProjectName() != null
+                    ? pc.getSubProjectName()
+                    : "(no sub-project)";
+
             issues.add(projectWiseIssue(
                     sessionId,
                     "PW-010",
                     "CRITICAL",
-                    pc.getHoursCell(),
+                    pc.getHoursCell().getRow(),
+                    5,
+                    "Project Code",
                     String.format(
                             "Invalid PCode mapping. PCode '%s' does not belong to Sub-Project '%s'.",
                             pc.getProjectCode(),
-                            pc.getSubProjectName())));
+                            subProjectLabel)));
 
         } else {
 
@@ -2859,7 +2897,9 @@ private void validateProjectCodeStructure(
                     sessionId,
                     "PW-011",
                     "CRITICAL",
-                    pc.getHoursCell(),
+                    pc.getHoursCell().getRow(),
+                    5,
+                    "Project Code",
                     String.format(
                             "Invalid Projectcode detected in Project-wise sheet. Projectcode '%s' does not exist in Timesheet data.",
                             pc.getProjectCode())));
@@ -2867,6 +2907,93 @@ private void validateProjectCodeStructure(
     }
 
     log.info("Completed PW-010/PW-011 validation.");
+}
+
+
+// =================================================================
+// Helper methods for finding cell references of missing entries
+// =================================================================
+
+/**
+ * For a missing project, tries to find a row in the hierarchy where the
+ * project name should have appeared. Looks for a sub-project from the
+ * Timesheet that belongs to this project, then checks if the hierarchy has
+ * a sub-project with that name. Returns the row index, or -1 if not found.
+ */
+private int findMissingProjectRow(
+        String projectName,
+        Set<SubProjectKey> timesheetSubProjectKeys,
+        ProjectWiseHierarchy hierarchy) {
+
+    for (SubProjectKey spKey : timesheetSubProjectKeys) {
+        if (spKey.getProjectName().equals(projectName)) {
+            // This sub-project belongs to the missing project in the Timesheet.
+            // Check if the hierarchy has a sub-project with this name.
+            for (SubProjectSummary sp : hierarchy.getSubProjects()) {
+                if (sp.getSubProjectName().equals(spKey.getSubProjectName())) {
+                    return sp.getHoursCell().getRow();
+                }
+            }
+        }
+    }
+    return -1;
+}
+
+/**
+ * For a missing sub-project, tries to find a row in the hierarchy where the
+ * sub-project name should have appeared. Looks for a project code from the
+ * Timesheet that belongs to this sub-project, then checks if the hierarchy
+ * has a project code with that value. Returns the row index, or -1 if not found.
+ */
+private int findMissingSubProjectRow(
+        SubProjectKey tsKey,
+        Set<ProjectCodeKey> timesheetProjectCodeKeys,
+        ProjectWiseHierarchy hierarchy) {
+
+    for (ProjectCodeKey pcKey : timesheetProjectCodeKeys) {
+        if (pcKey.getProjectName().equals(tsKey.getProjectName())
+                && pcKey.getSubProjectName().equals(tsKey.getSubProjectName())) {
+            // This project code belongs to the missing sub-project in the Timesheet.
+            // Check if the hierarchy has a project code with this value.
+            for (ProjectCodeSummary pc : hierarchy.getProjectCodes()) {
+                if (pc.getProjectCode().equals(pcKey.getProjectCode())) {
+                    return pc.getHoursCell().getRow();
+                }
+            }
+        }
+    }
+    return -1;
+}
+
+/**
+ * For a missing project code, tries to find a row in the hierarchy where the
+ * project code should have appeared. Looks for the sub-project that this
+ * project code belongs to in the Timesheet, then checks if the hierarchy
+ * has a sub-project with that name. Returns the row index, or -1 if not found.
+ */
+private int findMissingProjectCodeRow(
+        ProjectCodeKey tsKey,
+        Set<SubProjectKey> timesheetSubProjectKeys,
+        ProjectWiseHierarchy hierarchy) {
+
+    // Find the sub-project name that this project code belongs to in the Timesheet.
+    String targetSubProject = tsKey.getSubProjectName();
+
+    // Look for a sub-project in the hierarchy with this name.
+    for (SubProjectSummary sp : hierarchy.getSubProjects()) {
+        if (sp.getSubProjectName().equals(targetSubProject)) {
+            return sp.getHoursCell().getRow();
+        }
+    }
+
+    // Fallback: also check project codes in the hierarchy for the same value.
+    for (ProjectCodeSummary pc : hierarchy.getProjectCodes()) {
+        if (pc.getProjectCode().equals(tsKey.getProjectCode())) {
+            return pc.getHoursCell().getRow();
+        }
+    }
+
+    return -1;
 }
 
 
