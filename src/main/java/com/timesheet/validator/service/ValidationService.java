@@ -3500,6 +3500,35 @@ private void validateSubProjects(
                                     employeeName)));
                 }
             }
+
+            // =========================================
+            // SM-10: Missing Daily Rate (Phase 4 / Bug 2.1)
+            // =========================================
+            if (!employeeName.isBlank() && dailyRateStr.isBlank()) {
+                issues.add(summaryIssue(
+                        sessionId, "SM-10", "CRITICAL", rowIdx, 5, "Daily Rate",
+                        "Daily Rate is mandatory."));
+            }
+
+            // =========================================
+            // SM-11: Missing Working Days (Phase 4 / Bug 2.2)
+            // =========================================
+            if (!employeeName.isBlank() && daysWorkedStr.isBlank()) {
+                issues.add(summaryIssue(
+                        sessionId, "SM-11", "CRITICAL", rowIdx, 8, "Days Worked",
+                        "Working Days is mandatory."));
+            }
+
+            // =========================================
+            // SM-12: Missing Total Amount (Phase 4 / Bug 2.3)
+            // =========================================
+            if (!employeeName.isBlank() && totalAmountStr.isBlank()) {
+                issues.add(summaryIssue(
+                        sessionId, "SM-12", "CRITICAL", rowIdx, 10, "Total Amount",
+                        String.format(
+                                "Total Amount is mandatory and missing for employee '%s'.",
+                                employeeName)));
+            }
         }
 
         log.info("Summary Validation completed.");
