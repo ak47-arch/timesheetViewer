@@ -221,6 +221,10 @@ public class ProjectWiseParser {
             */
             if (!project.isBlank()) {
                 currentProject = project;
+                // Record the project cell in the Hierarchy table (col D, index 3)
+                hierarchy.addHierarchyProjectCell(
+                        project,
+                        new CellReference(row, HIERARCHY_PROJECT_COL, "Project"));
             }
 
             /*
