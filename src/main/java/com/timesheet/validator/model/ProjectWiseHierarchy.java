@@ -1,10 +1,6 @@
 package com.timesheet.validator.model;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -26,6 +22,9 @@ public class ProjectWiseHierarchy {
 
     private final List<ProjectCodeSummary> projectCodes = new ArrayList<>();
 
+    /** Tracks project names found in the Hierarchy table (col D) with their cell references. */
+    private final Map<String, CellReference> hierarchyProjectCells = new LinkedHashMap<>();
+
     public void addProject(ProjectSummary project) {
         projects.add(project);
     }
@@ -36,6 +35,42 @@ public class ProjectWiseHierarchy {
 
     public void addProjectCode(ProjectCodeSummary projectCode) {
         projectCodes.add(projectCode);
+    }
+
+    /**
+     * Records a project cell found in the Hierarchy table (column D, index 3).
+     * These are projects that appear in the hierarchy but may not be in the
+     * Project Summary table (columns A-B).
+     */
+    public void addHierarchyProjectCell(String projectName, CellReference cellRef) {
+        hierarchyProjectCells.putIfAbsent(projectName.trim(), cellRef);
+    }
+
+    /**
+     * Returns the map of project name → cell reference for projects found
+     * in the Hierarchy table (column D).
+     */
+    public Map<String, CellReference> getHierarchyProjectCells() {
+        return Collections.unmodifiableMap(hierarchyProjectCells);
+    }
+
+    /**
+     * Returns the set of all project names from both the Project Summary table
+     * and the Hierarchy table.
+     */
+    public Set<String> getAllProjectNames() {
+        Set<String> all = new HashSet<>(getProjectNames());
+        all.addAll(hierarchyProjectCells.keySet());
+        return all;
+    }
+
+    /**
+     * Returns true if the given project name exists anywhere in the hierarchy
+     * (either in the Project Summary table or the Hierarchy table).
+     */
+    public boolean containsProjectAnywhere(String projectName) {
+        return getProjectNames().contains(projectName)
+                || hierarchyProjectCells.containsKey(projectName.trim());
     }
 
     public List<ProjectSummary> getProjects() {
