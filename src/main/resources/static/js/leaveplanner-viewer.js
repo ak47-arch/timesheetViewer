@@ -141,10 +141,6 @@
         const host =
             document.getElementById("sheetHost");
 
-            if (!host) {
-                return;
-            }
-
         host.innerHTML = html;
 
     }
@@ -153,10 +149,6 @@
 
         const host =
             document.getElementById("sheetHost");
-
-            if (!host) {
-                            return;
-                        }
 
         host.innerHTML =
             "<div class='lp-loading'>" +
@@ -170,10 +162,6 @@
 
         const host =
             document.getElementById("sheetHost");
-
-            if (!host) {
-                            return;
-                        }
 
         host.innerHTML =
             "<div class='lp-error'>" +

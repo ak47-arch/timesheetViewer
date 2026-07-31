@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security" lang="en">
+<head th:replace="fragments/layout :: head('Leave Calendar')"></head>
+<body
+    th:data-year="${year}"
+    th:data-month="${month}"
+    th:data-can-register="${canRegister}"
+    th:data-resource-name="${resourceName}"
+    th:data-csrf="${_csrf != null ? _csrf.token : ''}"
+    th:data-csrf-header="${_csrf != null ? _csrf.headerName : ''}">
+
+<nav th:replace="fragments/layout :: navbar"></nav>
+
+<main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1><i class="fa fa-calendar-day"></i> Leave Calendar</h1>
+      <p class="subtitle">
+        <span th:if="${resourceName}"><strong th:text="${resourceName}">You</strong> &bull; </span>
+        <span th:unless="${canRegister}" class="text-muted">
+          View only — your account isn't linked to a roster resource.
+        </span>
+        <span th:if="${canRegister}">register your leave, view holidays &amp; team days off</span>
+      </p>
+    </div>
+    <div class="page-actions">
+      <button th:if="${canRegister}" id="btnNewLeave" class="btn btn-primary">
+        <i class="fa fa-plus"></i> New Leave
+      </button>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="cal-toolbar">
+    <div class="cal-nav">
+      <button id="calPrev"  class="btn btn-sm cal-arrow" title="Previous month"><i class="fa fa-chevron-left"></i></button>
+      <button id="calToday" class="btn btn-sm">Today</button>
+      <button id="calNext"  class="btn btn-sm cal-arrow" title="Next month"><i class="fa fa-chevron-right"></i></button>
+      <h2 id="calLabel" class="cal-label">&nbsp;</h2>
+    </div>
+    <div class="cal-legend">
+      <span class="lg"><i class="dot dot-holiday"></i> Holiday</span>
+      <span class="lg"><i class="dot dot-mine"></i> My leave</span>
+      <span class="lg"><i class="dot dot-planner"></i> Planner leave</span>
+      <span class="lg"><i class="dot dot-team"></i> Team</span>
+    </div>
+  </div>
+
+  <div class="cal-layout">
+    <!-- Month grid -->
+    <div class="card cal-card">
+      <div class="cal-weekhead">
+        <div>MON</div><div>TUE</div><div>WED</div><div>THU</div>
+        <div>FRI</div><div class="wknd">SAT</div><div class="wknd">SUN</div>
+      </div>
+      <div id="calGrid" class="cal-grid"><!-- day cells injected by JS --></div>
+    </div>
+
+    <!-- Side panel -->
+    <aside class="cal-side">
+      <div class="card side-card">
+        <div class="card-header"><i class="fa fa-umbrella-beach"></i> Public Holidays</div>
+        <div id="sideHolidays" class="side-body">
+          <p class="side-empty">No holidays this month.</p>
+        </div>
+      </div>
+      <div class="card side-card">
+        <div class="card-header"><i class="fa fa-user-clock"></i> Team Days Off</div>
+        <div id="sideTeam" class="side-body">
+          <p class="side-empty">No team leave this month.</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<!-- Leave modal -->
+<div id="leaveModal" class="cal-modal" style="display:none;">
+  <div class="cal-modal-card">
+    <div class="cal-modal-head">
+      <h3><i class="fa fa-plane-departure"></i> Register Leave</h3>
+      <button id="modalClose" class="cal-modal-x" title="Close">&times;</button>
+    </div>
+    <div class="cal-modal-body">
+      <div id="existingLeave" class="existing-leave" style="display:none;">
+        <span id="existingLeaveText"></span>
+        <button id="existingLeaveDelete" class="btn btn-sm btn-danger" data-id="">
+          <i class="fa fa-trash"></i> Delete
+        </button>
+      </div>
+      <div class="fld">
+        <label>Start date</label>
+        <input type="date" id="leaveStart"/>
+      </div>
+      <div class="fld">
+        <label>End date <small>(same as start for a single day)</small></label>
+        <input type="date" id="leaveEnd"/>
+      </div>
+      <div class="fld">
+        <label>Type</label>
+        <select id="leaveType">
+          <option value="FULL_DAY">Full day</option>
+          <option value="HALF_DAY">Half day</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label>Reason <small>(optional)</small></label>
+        <input type="text" id="leaveReason" maxlength="500" placeholder="e.g. Vacation, Personal"/>
+      </div>
+      <p class="fld-note"><i class="fa fa-circle-info"></i> Weekends and public holidays in the range are skipped automatically.</p>
+      <div id="modalMsg" class="modal-msg"></div>
+    </div>
+    <div class="cal-modal-foot">
+      <button id="modalCancel" class="btn btn-sm">Cancel</button>
+      <button id="modalSave" class="btn btn-primary btn-sm"><i class="fa fa-check"></i> Register</button>
+    </div>
+  </div>
+</div>
+
+<footer th:replace="fragments/layout :: footer"></footer>
+
+<style>
+  .cal-toolbar { display:flex; align-items:center; justify-content:space-between;
+                 flex-wrap:wrap; gap:12px; margin-bottom:14px; }
+  .cal-nav { display:flex; align-items:center; gap:8px; }
+  .cal-arrow { width:34px; }
+  .cal-label { font-size:1.15rem; color:var(--navy); margin-left:8px; min-width:170px; }
+  .cal-legend { display:flex; gap:14px; flex-wrap:wrap; font-size:.78rem; color:var(--dgray); }
+  .cal-legend .lg { display:flex; align-items:center; gap:6px; }
+  .dot { width:11px; height:11px; border-radius:3px; display:inline-block; }
+  .dot-holiday { background:var(--red); }
+  .dot-mine    { background:var(--blue); }
+  .dot-planner { background:var(--purple); }
+  .dot-team    { background:var(--dgray); }
+
+  .cal-layout { display:grid; grid-template-columns: 1fr 320px; gap:16px; align-items:start; }
+  @media (max-width: 1100px){ .cal-layout { grid-template-columns:1fr; } }
+
+  .cal-card { padding:0; overflow:hidden; }
+  .cal-weekhead, .cal-grid { display:grid; grid-template-columns: repeat(7,1fr); }
+  .cal-weekhead > div { padding:10px 8px; font-size:.72rem; font-weight:700; letter-spacing:.04em;
+                        color:var(--dgray); background:var(--gray); border-bottom:1px solid var(--border); }
+  .cal-weekhead .wknd { color:var(--orange); }
+
+  .cal-day { min-height:104px; border-right:1px solid var(--border); border-bottom:1px solid var(--border);
+             padding:6px; position:relative; display:flex; flex-direction:column; gap:4px;
+             background:#fff; transition:background .12s; }
+  .cal-day:nth-child(7n) { border-right:none; }
+  .cal-day.out { background:#fafbfc; }
+  .cal-day.weekend { background:#fff8f3; }
+  .cal-day.today { box-shadow: inset 0 0 0 2px var(--blue); }
+  .cal-day.clickable { cursor:pointer; }
+  .cal-day.clickable:hover { background:var(--lblue); }
+  .cal-day.holiday-locked { cursor:not-allowed; }
+  .cal-day.holiday-locked:hover { background:var(--lred); }
+  .cal-day-num { font-size:.82rem; color:var(--text); font-weight:600; align-self:flex-start; }
+  .cal-day.out .cal-day-num { color:#b8c0c8; }
+
+  .chip { font-size:.7rem; line-height:1.15; padding:2px 6px; border-radius:5px;
+          display:flex; align-items:center; gap:4px; overflow:hidden; }
+  .chip .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .chip-holiday { background:var(--lred);   color:var(--red);   font-weight:600; }
+  .chip-mine    { background:var(--lblue);  color:var(--navy); }
+  .chip-planner { background:var(--lpurple);color:var(--purple); }
+  .chip-team    { background:var(--gray);   color:var(--dgray); }
+  .chip-x { margin-left:auto; cursor:pointer; opacity:.65; font-weight:700; }
+  .chip-x:hover { opacity:1; color:var(--red); }
+
+  .cal-side { display:flex; flex-direction:column; gap:16px; }
+  .side-card .card-header { font-size:.82rem; }
+  .side-body { padding:10px 12px; max-height:280px; overflow:auto; }
+  .side-empty { color:var(--dgray); font-size:.8rem; margin:4px 0; }
+  .side-item { display:flex; align-items:baseline; gap:8px; padding:6px 0; border-bottom:1px dashed var(--border); font-size:.82rem; }
+  .side-item:last-child { border-bottom:none; }
+  .side-item .d { color:var(--dgray); font-variant-numeric:tabular-nums; min-width:54px; }
+  .side-item .n { font-weight:600; color:var(--text); }
+  .side-item .sub { color:var(--dgray); font-size:.74rem; }
+
+  .cal-modal { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:500;
+               display:flex; align-items:center; justify-content:center; }
+  .cal-modal-card { background:#fff; width:420px; max-width:94vw; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.25); overflow:hidden; }
+  .cal-modal-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; background:var(--navy); color:#fff; }
+  .cal-modal-head h3 { font-size:1rem; display:flex; align-items:center; gap:8px; }
+  .cal-modal-x { background:none; border:none; color:#fff; font-size:1.4rem; cursor:pointer; line-height:1; }
+  .cal-modal-body { padding:16px 18px; display:flex; flex-direction:column; gap:12px; }
+  .fld { display:flex; flex-direction:column; gap:5px; }
+  .fld label { font-size:.8rem; font-weight:600; color:var(--navy); }
+  .fld label small { font-weight:400; color:var(--dgray); }
+  .fld input, .fld select { padding:8px 10px; border:1px solid var(--border); border-radius:8px; font-size:.85rem; }
+  .fld-note { font-size:.74rem; color:var(--dgray); display:flex; gap:6px; align-items:center; }
+  .modal-msg { font-size:.8rem; min-height:1em; }
+  .modal-msg.ok  { color:var(--green); }
+  .modal-msg.err { color:var(--red); }
+  .existing-leave { display:flex; align-items:center; justify-content:space-between; gap:10px;
+                    background:var(--lblue); border:1px solid var(--formula-border);
+                    border-radius:8px; padding:8px 12px; font-size:.82rem; color:var(--navy); }
+
+  .cal-toast { position:fixed; left:50%; bottom:28px; transform:translateX(-50%) translateY(20px);
+               background:var(--navy); color:#fff; padding:11px 18px; border-radius:9px;
+               font-size:.85rem; box-shadow:0 8px 26px rgba(0,0,0,.28); z-index:900;
+               opacity:0; pointer-events:none; transition:opacity .2s, transform .2s; }
+  .cal-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  .cal-modal-foot { display:flex; justify-content:flex-end; gap:8px; padding:12px 18px; border-top:1px solid var(--border); background:var(--gray); }
+</style>
+
+<script th:src="@{/js/calendar.js}"></script>
+</body>
+</html>
