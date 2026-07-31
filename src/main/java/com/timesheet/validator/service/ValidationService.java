@@ -33,6 +33,7 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -3467,30 +3468,93 @@ private void validateSubProjects(
             }
 
             // =========================================
-            // SM-04: Billing Period (Start/End Date)
+            // SM-04 / FR-4: Billing Period Validation
             // =========================================
-            if (!employeeName.isBlank() && (!startDateStr.isBlank() || !endDateStr.isBlank())) {
+            // FR-4 Acceptance Criteria:
+            // 1. Start Date and End Date must be present and match the dates in Project Mastersheet.
+            // 2. Start Date must be before End Date.
+            // 3. Dates must fall within active resource allocation period.
+            // 4. Working Days must fall within billing period.
+            if (!employeeName.isBlank()) {
                 String normalizedName = employeeName.trim().toLowerCase();
                 com.timesheet.validator.domain.Resource resource = resourceByName.get(normalizedName);
+
+                // FR-4.1: Start/End dates are mandatory
+                if (startDateStr.isBlank()) {
+                    issues.add(summaryIssue(
+                            sessionId, "SM-04", "CRITICAL", rowIdx, 6, "Start Date",
+                            String.format("Start Date is mandatory for '%s'.", employeeName)));
+                }
+                if (endDateStr.isBlank()) {
+                    issues.add(summaryIssue(
+                            sessionId, "SM-04", "CRITICAL", rowIdx, 7, "End Date",
+                            String.format("End Date is mandatory for '%s'.", employeeName)));
+                }
+
+                // Parse dates for further checks
+                LocalDate parsedStart = startDateStr.isBlank() ? null : parseDate(startDateStr.trim());
+                LocalDate parsedEnd = endDateStr.isBlank() ? null : parseDate(endDateStr.trim());
+
+                // FR-4.2: Start Date must be before End Date
+                if (parsedStart != null && parsedEnd != null && parsedStart.isAfter(parsedEnd)) {
+                    issues.add(summaryIssue(
+                            sessionId, "SM-04", "CRITICAL", rowIdx, 6, "Start Date",
+                            String.format(
+                                    "Start Date cannot be greater than End Date. Please check for '%s'.",
+                                    employeeName)));
+                }
+
                 if (resource != null) {
-                    if (!startDateStr.isBlank() && resource.getStartDate() != null) {
-                        LocalDate parsedStart = parseDate(startDateStr.trim());
-                        if (parsedStart != null && !parsedStart.equals(resource.getStartDate())) {
-                            issues.add(summaryIssue(
-                                    sessionId, "SM-04", "CRITICAL", rowIdx, 6, "Start Date",
-                                    String.format("Start Date mismatch for '%s'. Expected %s, found %s.",
-                                            employeeName, resource.getStartDate(), startDateStr)));
-                        }
+                    // FR-4.1 (continued): Dates must match the Project Mastersheet
+                    if (parsedStart != null && resource.getStartDate() != null
+                            && !parsedStart.equals(resource.getStartDate())) {
+                        issues.add(summaryIssue(
+                                sessionId, "SM-04", "CRITICAL", rowIdx, 6, "Start Date",
+                                String.format("Start Date mismatch for '%s'. Expected %s, found %s.",
+                                        employeeName, resource.getStartDate(), startDateStr)));
                     }
-                    if (!endDateStr.isBlank() && resource.getEndDate() != null) {
-                        LocalDate parsedEnd = parseDate(endDateStr.trim());
-                        if (parsedEnd != null && !parsedEnd.equals(resource.getEndDate())) {
-                            issues.add(summaryIssue(
-                                    sessionId, "SM-04", "CRITICAL", rowIdx, 7, "End Date",
-                                    String.format("End Date mismatch for '%s'. Expected %s, found %s.",
-                                            employeeName, resource.getEndDate(), endDateStr)));
-                        }
+                    if (parsedEnd != null && resource.getEndDate() != null
+                            && !parsedEnd.equals(resource.getEndDate())) {
+                        issues.add(summaryIssue(
+                                sessionId, "SM-04", "CRITICAL", rowIdx, 7, "End Date",
+                                String.format("End Date mismatch for '%s'. Expected %s, found %s.",
+                                        employeeName, resource.getEndDate(), endDateStr)));
                     }
+
+                    // FR-4.3: Dates must fall within active resource allocation period
+                    if (parsedStart != null && resource.getStartDate() != null
+                            && parsedStart.isBefore(resource.getStartDate())) {
+                        issues.add(summaryIssue(
+                                sessionId, "SM-04", "CRITICAL", rowIdx, 6, "Start Date",
+                                String.format(
+                                        "Start Date '%s' is before resource allocation start date %s for '%s'.",
+                                        startDateStr, resource.getStartDate(), employeeName)));
+                    }
+                    if (parsedEnd != null && resource.getEndDate() != null
+                            && parsedEnd.isAfter(resource.getEndDate())) {
+                        issues.add(summaryIssue(
+                                sessionId, "SM-04", "CRITICAL", rowIdx, 7, "End Date",
+                                String.format(
+                                        "End Date '%s' is after resource allocation end date %s for '%s'.",
+                                        endDateStr, resource.getEndDate(), employeeName)));
+                    }
+                }
+
+                // FR-4.4: Working Days must fall within billing period (sanity check)
+                if (parsedStart != null && parsedEnd != null && !daysWorkedStr.isBlank()) {
+                    try {
+                        double summaryDays = Double.parseDouble(daysWorkedStr.trim());
+                        long totalDaysInPeriod = ChronoUnit.DAYS.between(parsedStart, parsedEnd) + 1;
+                        if (summaryDays > totalDaysInPeriod) {
+                            issues.add(summaryIssue(
+                                    sessionId, "SM-04", "CRITICAL", rowIdx, 8, "Days Worked",
+                                    String.format(
+                                            "Working Days (%.1f) exceed billing period length (%d days) for '%s'. " +
+                                                    "Start=%s, End=%s",
+                                            summaryDays, totalDaysInPeriod, employeeName,
+                                            startDateStr, endDateStr)));
+                        }
+                    } catch (NumberFormatException ignored) {}
                 }
             }
 
