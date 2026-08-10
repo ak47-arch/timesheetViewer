@@ -709,23 +709,27 @@ public class ValidationService {
         // SUMMARY VALIDATION
         // ======================================================
 
+        // Summary cells are needed by BOTH the Summary phase and the Commercial
+        // phase (CM-02 headcount, CM-03 billable days, CM-04 billable amount all
+        // cross-reference the Summary sheet). Load them whenever either phase is
+        // active so the Commercial checks are not silently skipped.
         List<CellData> summaryCells = new ArrayList<>();
-        if (summaryPhase) {
+        if (summaryPhase || commercialPhase) {
 
             summaryCells =
                     cellRepo.findBySessionIdAndSheetNameOrderByRowIdxAscColIdxAsc(
                             sessionId,
                             SUMMARY_SHEET);
+        }
 
-            if (!summaryCells.isEmpty()) {
+        if (summaryPhase && !summaryCells.isEmpty()) {
 
-                validateSummary(
-                        sessionId,
-                        allCells,
-                        pivotCells,
-                        summaryCells,
-                        issues);
-            }
+            validateSummary(
+                    sessionId,
+                    allCells,
+                    pivotCells,
+                    summaryCells,
+                    issues);
         }
 
         // ======================================================
@@ -3807,7 +3811,11 @@ private void validateSubProjects(
         // =========================================
         log.info("CM-01: Project Name='{}' Project ID='{}'", projectName, projectId);
 
-        if (!projectName.isBlank()) {
+        if (projectName.isBlank()) {
+            issues.add(commercialIssue(
+                    sessionId, "CM-01", "CRITICAL", 0, 1, "Project Name",
+                    "Project Name is mandatory. Project Name not found in Project Master."));
+        } else {
             // Check if any SOW has a description matching the project name
             boolean projectFound = false;
             for (com.timesheet.validator.domain.SowMaster sow : sowByNumber.values()) {
@@ -3824,7 +3832,11 @@ private void validateSubProjects(
             }
         }
 
-        if (!projectId.isBlank()) {
+        if (projectId.isBlank()) {
+            issues.add(commercialIssue(
+                    sessionId, "CM-01", "CRITICAL", 1, 1, "Project ID",
+                    "Project ID is mandatory. Project ID not found in Project Master."));
+        } else {
             // Check if any SOW has a sowNumber containing the project ID info
             // Project ID format: "IGT SOW No 18-2026" — we check if it matches any SOW
             boolean idFound = false;
@@ -3849,7 +3861,11 @@ private void validateSubProjects(
                 normalizedPoNumber, poValueStr, billableHeadcountStr);
 
         // Validate PO Number against SOW_MASTER
-        if (!normalizedPoNumber.isBlank()) {
+        if (normalizedPoNumber.isBlank()) {
+            issues.add(commercialIssue(
+                    sessionId, "CM-02", "CRITICAL", 2, 1, "PO Number",
+                    "PO Number is mandatory. PO Number missing for selected Project."));
+        } else {
             boolean poFound = false;
             String expectedPoValue = null;
             for (com.timesheet.validator.domain.SowMaster sow : sowByNumber.values()) {
@@ -3865,26 +3881,36 @@ private void validateSubProjects(
                 issues.add(commercialIssue(
                         sessionId, "CM-02", "CRITICAL", 2, 1, "PO Number",
                         String.format("Invalid PO Number '%s' for selected Project.", normalizedPoNumber)));
-            } else {
-                // Validate PO Value
-                if (!poValueStr.isBlank() && expectedPoValue != null) {
-                    try {
-                        String normalizedPoValue = poValueStr.replaceAll("[,$]", "");
-                        if (!normalizedPoValue.equals(expectedPoValue)) {
-                            issues.add(commercialIssue(
-                                    sessionId, "CM-02", "CRITICAL", 3, 1, "PO Value",
-                                    String.format("PO Value mismatch with Project Mastersheet. Expected '%s', found '%s'.",
-                                            expectedPoValue, poValueStr)));
-                        }
-                    } catch (Exception e) {
-                        log.warn("Could not parse PO Value: {}", poValueStr);
+            } else if (expectedPoValue != null && !poValueStr.isBlank()) {
+                // Validate PO Value against the matched master PO (blank handled below)
+                try {
+                    String normalizedPoValue = poValueStr.replaceAll("[,$]", "");
+                    if (!normalizedPoValue.equals(expectedPoValue)) {
+                        issues.add(commercialIssue(
+                                sessionId, "CM-02", "CRITICAL", 3, 1, "PO Value",
+                                String.format("PO Value mismatch with Project Mastersheet. Expected '%s', found '%s'.",
+                                        expectedPoValue, poValueStr)));
                     }
+                } catch (Exception e) {
+                    log.warn("Could not parse PO Value: {}", poValueStr);
                 }
             }
         }
 
+        // PO Value is mandatory regardless of whether the PO Number is blank or
+        // invalid (FR-2: PO Value must match the master / must not be missing).
+        if (poValueStr.isBlank()) {
+            issues.add(commercialIssue(
+                    sessionId, "CM-02", "CRITICAL", 3, 1, "PO Value",
+                    "PO Value is mandatory. PO Value missing for selected Project."));
+        }
+
         // Validate Total Billable Headcount against Summary resource count
-        if (!billableHeadcountStr.isBlank() && summaryCells != null && !summaryCells.isEmpty()) {
+        if (billableHeadcountStr.isBlank()) {
+            issues.add(commercialIssue(
+                    sessionId, "CM-02", "CRITICAL", 4, 1, "Total Billable Headcount",
+                    "Total Billable Headcount is mandatory. Resource count missing."));
+        } else if (summaryCells != null && !summaryCells.isEmpty()) {
             try {
                 int commercialHeadcount = Integer.parseInt(billableHeadcountStr.trim());
 
@@ -3951,8 +3977,11 @@ private void validateSubProjects(
                 }
             }
 
-            // Calculate Commercial total billable days from data rows (row 9+)
-            double commercialTotalDays = 0;
+            // Commercial data section: rows 9..11 hold per-location rows followed by
+            // the project totals in the last row. Use the last row's Total Billable
+            // Days as the project total (mirrors the Summary sheet totals row).
+            double commercialTotalDays = Double.NaN;
+            int commercialDaysRow = -1;
             for (Map.Entry<Integer, Map<Integer, CellData>> entry : commercialRowMap.entrySet()) {
                 int rowIdx = entry.getKey();
                 // Data rows start at row 9 (0-indexed), before invoicing plan section
@@ -3964,7 +3993,8 @@ private void validateSubProjects(
                 String daysStr = val(cols, 2);
                 if (!daysStr.isBlank()) {
                     try {
-                        commercialTotalDays += Double.parseDouble(daysStr.trim());
+                        commercialTotalDays = Double.parseDouble(daysStr.trim());
+                        commercialDaysRow = rowIdx;
                     } catch (NumberFormatException ignored) {}
                 }
             }
@@ -3972,7 +4002,14 @@ private void validateSubProjects(
             log.info("CM-03: Summary total days={}, Commercial total days={}",
                     summaryTotalDays, commercialTotalDays);
 
-            if (summaryTotalDays > 0 && Math.abs(commercialTotalDays - summaryTotalDays) > 0.01) {
+            if (!Double.isNaN(commercialTotalDays) && commercialTotalDays < 0) {
+                issues.add(commercialIssue(
+                        sessionId, "CM-03", "CRITICAL", commercialDaysRow, 2, "Total Billable Days",
+                        String.format("Total Billable Days cannot be negative. Found %.1f.", commercialTotalDays)));
+            }
+
+            if (!Double.isNaN(commercialTotalDays) && summaryTotalDays > 0
+                    && Math.abs(commercialTotalDays - summaryTotalDays) > 0.01) {
                 issues.add(commercialIssue(
                         sessionId, "CM-03", "CRITICAL", 8, 2, "Total Billable Days",
                         String.format("Total Billable Days mismatch between Summary and Commercial sheet. Summary=%.1f, Commercial=%.1f.",
@@ -4009,8 +4046,10 @@ private void validateSubProjects(
                 }
             }
 
-            // Calculate Commercial total billable amount from data rows (row 9+)
-            double commercialTotalAmount = 0;
+            // Commercial data section: use the last data row's Total Billable Amount
+            // as the project total (mirrors the Summary sheet totals row).
+            double commercialTotalAmount = Double.NaN;
+            int commercialAmountRow = -1;
             for (Map.Entry<Integer, Map<Integer, CellData>> entry : commercialRowMap.entrySet()) {
                 int rowIdx = entry.getKey();
                 if (rowIdx < 9) continue;
@@ -4020,7 +4059,8 @@ private void validateSubProjects(
                 String amountStr = val(cols, 3);
                 if (!amountStr.isBlank()) {
                     try {
-                        commercialTotalAmount += Double.parseDouble(amountStr.trim().replaceAll("[,$]", ""));
+                        commercialTotalAmount = Double.parseDouble(amountStr.trim().replaceAll("[,$]", ""));
+                        commercialAmountRow = rowIdx;
                     } catch (NumberFormatException ignored) {}
                 }
             }
@@ -4028,7 +4068,14 @@ private void validateSubProjects(
             log.info("CM-04: Summary total amount={}, Commercial total amount={}",
                     summaryTotalAmount, commercialTotalAmount);
 
-            if (summaryTotalAmount > 0 && Math.abs(commercialTotalAmount - summaryTotalAmount) > 0.01) {
+            if (!Double.isNaN(commercialTotalAmount) && commercialTotalAmount < 0) {
+                issues.add(commercialIssue(
+                        sessionId, "CM-04", "CRITICAL", commercialAmountRow, 3, "Total Billable Amount",
+                        String.format("Total Billable Amount cannot be negative. Found %.2f.", commercialTotalAmount)));
+            }
+
+            if (!Double.isNaN(commercialTotalAmount) && summaryTotalAmount > 0
+                    && Math.abs(commercialTotalAmount - summaryTotalAmount) > 0.01) {
                 issues.add(commercialIssue(
                         sessionId, "CM-04", "CRITICAL", 8, 3, "Total Billable Amount",
                         String.format("Total Billable Amount mismatch between Summary and Commercial sheet. Summary=%.2f, Commercial=%.2f.",
@@ -4075,7 +4122,8 @@ private void validateSubProjects(
                                     expectedBalance, poAmount, cumulativeActualValue, poBalance)));
                 }
 
-                // Also validate each invoicing row's PO Balance
+                // Validate each invoicing row: Planned Value and Actual Value are
+                // mandatory for every month in the invoicing plan (FR-5).
                 for (Map.Entry<Integer, Map<Integer, CellData>> entry : commercialRowMap.entrySet()) {
                     int rowIdx = entry.getKey();
                     if (rowIdx < 17) continue;
@@ -4085,9 +4133,16 @@ private void validateSubProjects(
                     String balanceStr = val(cols, 3);
                     if (plannedStr.isBlank() && actualStr.isBlank() && balanceStr.isBlank()) continue;
 
-                    // Validate that PO Balance = previous PO Balance - Actual Value
-                    // (This is a simplified check; a full implementation would track
-                    //  the running balance from the first invoicing row)
+                    if (plannedStr.isBlank()) {
+                        issues.add(commercialIssue(
+                                sessionId, "CM-05", "CRITICAL", rowIdx, 1, "Planned Value",
+                                String.format("Planned Value is mandatory for invoicing row %d.", rowIdx + 1)));
+                    }
+                    if (actualStr.isBlank()) {
+                        issues.add(commercialIssue(
+                                sessionId, "CM-05", "CRITICAL", rowIdx, 2, "Actual Value",
+                                String.format("Actual Value is mandatory for invoicing row %d.", rowIdx + 1)));
+                    }
                 }
 
             } catch (NumberFormatException e) {
