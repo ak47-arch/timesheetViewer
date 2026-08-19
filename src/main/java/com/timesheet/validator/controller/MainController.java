@@ -453,25 +453,42 @@ public class MainController {
         return "redirect:/view/" + sessionId;
     }
 
-    // ── Phased validation: go back to the Timesheet phase ─────────────────────
+    // ── Phased validation: go back one stage and land on that stage's sheet ──
     @PostMapping("/view/{sessionId}/reset-phase")
     public String resetPhase(@PathVariable String sessionId, RedirectAttributes ra) {
         UploadSession session = sessionRepo.findBySessionId(sessionId)
                 .orElseThrow(() -> new RuntimeException("Session not found"));
         String currentPhase = session.getValidationPhase();
+        String targetPhase;
         if ("SUMMARY".equalsIgnoreCase(currentPhase)) {
-            session.setValidationPhase("PROJECT_WISE");
+            targetPhase = "PROJECT_WISE";
         } else if ("COMMERCIAL".equalsIgnoreCase(currentPhase)) {
-            session.setValidationPhase("SUMMARY");
+            targetPhase = "SUMMARY";
         } else if ("PROJECT_WISE".equalsIgnoreCase(currentPhase)) {
-            session.setValidationPhase("PIVOT");
+            targetPhase = "PIVOT";
         } else {
-            session.setValidationPhase("TIMESHEET");
+            targetPhase = "TIMESHEET";
         }
+        session.setValidationPhase(targetPhase);
         sessionRepo.save(session);
         validator.validate(sessionId);
+
+        // Land on the previous stage's sheet instead of defaulting to Timesheet.
+        String targetSheet = switch (targetPhase) {
+            case "PIVOT" -> "Pivot";
+            case "PROJECT_WISE" -> "Projectwise";
+            case "SUMMARY" -> "Summary";
+            case "COMMERCIAL" -> "Commercial";
+            default -> "Timesheet";
+        };
+        int backTab = sheetView.getSheetMetas(sessionId).stream()
+                .filter(m -> targetSheet.equalsIgnoreCase(m.getSheetName()))
+                .map(m -> m.getSheetIndex())
+                .filter(java.util.Objects::nonNull)
+                .findFirst().orElse(0);
+
         ra.addFlashAttribute("success", "Phase reset.");
-        return "redirect:/view/" + sessionId;
+        return "redirect:/view/" + sessionId + "?tab=" + backTab;
     }
 
     // ── Re-validate ───────────────────────────────────────────────────────────
