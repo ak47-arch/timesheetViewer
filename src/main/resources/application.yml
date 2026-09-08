@@ -259,20 +259,36 @@ app:
 #          - RES-016
 #          - RES-017
 #          - RES-018
-#      - sowNumber: SOW_19_2026
-#        poNumber: '3429004099'
-#        poValue: 3500000
-#        client: IGT
-#        description: XYZ SoftDev Maintenance Services
-#        startDate: "2026-04-01"
-#        endDate: "2026-12-31"
-#        active: true
+      - sowNumber: SOW_19_2026
+#        poNumber: '1234567897'
+        poValue: 3500000
+        client: IGT
+        description: IATA TIMATIC - Maintenance and Support Services
+        startDate: "2026-04-01"
+        endDate: "2026-12-31"
+        active: true
+
+        resourceIds:
+          - RES-01
+          - RES-02
+          - RES-03
+          - RES-04
+          - RES-05
+          - RES-06
+
+
+
 #        resourceIds:
-#          - RES-001
-#          - RES-003
-#          - RES-006
-#          - RES-007
-#          - RES-013
+#          - id: RES-30
+#            name: Deepa Malik
+#
+#          - id: RES-31
+#            name: Gaurav Kumar
+
+
+      - sowNumber: Net Jun billable amount
+        poValue: 3500000
+        client: IGT
 
     # Public holidays — add/remove entries and restart
     holidays:
@@ -415,6 +431,27 @@ app:
 #        workingHoursPerDay: 8
 #        startDate: "2026-03-01"
 #        endDate: "2026-03-31"
+
+
+      - resourceId: RES-01
+        name: Deepa Malik
+
+      - resourceId: RES-02
+        name: Gaurav Kumar
+
+      - resourceId: RES-03
+        name: Muhammad Shams uz zaman
+
+      - resourceId: RES-04
+        name: Regan Dsa
+
+      - resourceId: RES-05
+        name: Sravan Babu
+
+      - resourceId: RES-06
+        name: Monthly on call Support
+
+
 
 
     validation:
