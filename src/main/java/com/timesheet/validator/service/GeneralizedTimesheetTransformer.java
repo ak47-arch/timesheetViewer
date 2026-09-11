@@ -526,14 +526,24 @@ public class GeneralizedTimesheetTransformer {
                 : col;
     }
 
-    /** Unqualified (same-sheet) A1-style cell refs inside a Commercial
-     *  formula — sheet-qualified refs (preceded by '!') are excluded so
-     *  cross-sheet references are left for {@link #shiftSummaryColumnRefs}.
-     *  The ':' in the lookbehind is allowed to match so both halves of a
-     *  range (A1:B2) shift; '.' excludes decimal number literals. */
+    /** Cell references inside a Commercial formula, for row-shifting.
+     *  Two alternatives, tried in order:
+     *  <ol>
+     *    <li>sheet-qualified refs/ranges ({@code Summary!K3:K8}, {@code Pivot!M5})
+     *        — matched atomically so the range's second endpoint is never
+     *        exposed as a bare ref; their rows must NOT be shifted (the
+     *        Summary sheet keeps its own rows);</li>
+     *    <li>same-sheet refs/ranges ({@code B7}, {@code D21:D26}) — rows are
+     *        shifted by the stripped preamble offset. The lookbehind excludes
+     *        {@code !} (cross-sheet), {@code :} (range connector handled by
+     *        the whole-range match above), {@code .} (decimal literals) and
+     *        alphanumerics (function names like LOG10).</li>
+     *  </ol> */
     private static final java.util.regex.Pattern COMMERCIAL_ROW_REF =
             java.util.regex.Pattern.compile(
-                    "(?<![A-Za-z0-9_.!])(\\$?[A-Za-z]{1,3})(\\$?)([0-9]{1,7})(?![0-9A-Za-z_(])");
+                    "[A-Za-z0-9_]+!\\$?[A-Za-z]{1,3}\\$?\\d+(?::\\$?[A-Za-z]{1,3}\\$?\\d+)?"
+                    + "|(?<![A-Za-z0-9_.!:$])(\\$?[A-Za-z]{1,3})(\\$?)(\\d+)"
+                    + "(?::(\\$?)([A-Za-z]{1,3})(\\$?)(\\d+))?(?![0-9A-Za-z_(])");
 
     /**
      * Shifts unqualified (same-sheet) row references in a Commercial formula
@@ -553,10 +563,17 @@ public class GeneralizedTimesheetTransformer {
         StringBuilder sb = new StringBuilder();
         int last = 0;
         while (m.find()) {
-            int srcRow1 = Integer.parseInt(m.group(3));       // 1-based Excel row
             String repl = m.group(0);
-            if ((srcRow1 - 1) >= offset) {                    // skip refs into the dropped preamble
-                repl = m.group(1) + m.group(2) + (srcRow1 - offset);
+            if (repl.indexOf('!') < 0) {
+                // same-sheet ref or range — shift row endpoints that sit
+                // below the dropped preamble
+                int r1 = Integer.parseInt(m.group(3));
+                repl = m.group(1) + m.group(2) + ((r1 - 1 >= offset) ? r1 - offset : r1);
+                if (m.group(5) != null) {                       // range second endpoint
+                    int r2 = Integer.parseInt(m.group(7));
+                    repl += ":" + m.group(4) + m.group(5) + m.group(6)
+                            + ((r2 - 1 >= offset) ? r2 - offset : r2);
+                }
             }
             sb.append(formula, last, m.start()).append(repl);
             last = m.end();
