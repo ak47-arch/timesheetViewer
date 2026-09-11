@@ -25,6 +25,7 @@ import com.timesheet.validator.domain.Resource;
 import com.timesheet.validator.repository.ResourceRepository;
 import com.timesheet.validator.repository.ResourceSowRepository;
 import com.timesheet.validator.repository.SowMasterRepository;
+import com.timesheet.validator.repository.SowPoRepository;
 import com.timesheet.validator.repository.ValidationIssueRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -91,6 +92,7 @@ public class ValidationService {
     private final PublicHolidayRepository holidayRepo;
     private final ResourceSowRepository resourceSowRepo;
     private final SowMasterRepository sowMasterRepo;
+    private final SowPoRepository sowPoRepo;
     private final ValidationIssueRepository issueRepo;
     private final UploadSessionRepository sessionRepo;
     private final RuleCatalog ruleCatalog;
@@ -3368,6 +3370,33 @@ private void validateSubProjects(
 
 
     /**
+     * All PO numbers registered under a SOW: the primary SOW_MASTER.PO_NUMBER
+     * plus every SOW_PO row seeded for it. The clean sheet layout carries one
+     * PO per resource row in the Summary sheet plus the primary PO in the
+     * Commercial header, so single-PO validation false-positives one side or
+     * the other.
+     */
+    private Set<String> validPoNumbersForSow(com.timesheet.validator.domain.SowMaster sow) {
+        Set<String> pos = new HashSet<>();
+        if (sow.getPoNumber() != null && !sow.getPoNumber().isBlank()) {
+            pos.add(sow.getPoNumber());
+        }
+        sowPoRepo.findBySowNumber(sow.getSowNumber())
+                .forEach(p -> pos.add(p.getPoNumber()));
+        return pos;
+    }
+
+    /** True when the given PO number belongs to any known SOW (primary or
+     *  SOW_PO-registered). Returns the owning SOW, or {@code null}. */
+    private com.timesheet.validator.domain.SowMaster findSowByPoNumber(
+            Map<String, com.timesheet.validator.domain.SowMaster> sowByNumber, String poNumber) {
+        for (com.timesheet.validator.domain.SowMaster sow : sowByNumber.values()) {
+            if (validPoNumbersForSow(sow).contains(poNumber)) return sow;
+        }
+        return null;
+    }
+
+    /**
      * Validates the Summary sheet against the DB and the Timesheet/Pivot data.
      *
      * Summary sheet layout (0-based):
@@ -3478,21 +3507,20 @@ private void validateSubProjects(
             if (!sowNo.isBlank() && !poNumber.isBlank()) {
                 com.timesheet.validator.domain.SowMaster sow = sowByNumber.get(sowNo.trim());
                 if (sow != null) {
-                    String expectedPo = sow.getPoNumber();
-                    if (expectedPo != null && !expectedPo.isBlank()) {
-                        // Normalize: PO numbers may appear as scientific notation in Excel
-                        String normalizedPo = poNumber.trim();
-                        if (normalizedPo.contains("E") || normalizedPo.contains("e")) {
-                            try {
-                                normalizedPo = String.valueOf((long) Double.parseDouble(normalizedPo));
-                            } catch (NumberFormatException ignored) {}
-                        }
-                        if (!expectedPo.equals(normalizedPo)) {
-                            issues.add(summaryIssue(
-                                    sessionId, "SM-05", "CRITICAL", rowIdx, 2, "PO#",
-                                    String.format("PO Number mismatch for SOW '%s'. Expected '%s', found '%s'.",
-                                            sowNo, expectedPo, poNumber)));
-                        }
+                    // Normalize: PO numbers may appear as scientific notation in Excel
+                    String normalizedPo = poNumber.trim();
+                    if (normalizedPo.contains("E") || normalizedPo.contains("e")) {
+                        try {
+                            normalizedPo = String.valueOf((long) Double.parseDouble(normalizedPo));
+                        } catch (NumberFormatException ignored) {}
+                    }
+                    // Valid when the PO is the SOW's primary PO number or one of
+                    // its SOW_PO-registered POs (per-resource Summary rows).
+                    if (!validPoNumbersForSow(sow).contains(normalizedPo)) {
+                        issues.add(summaryIssue(
+                                sessionId, "SM-05", "CRITICAL", rowIdx, 2, "PO#",
+                                String.format("PO Number mismatch for SOW '%s'. PO '%s' is not registered for this SOW.",
+                                        sowNo, poNumber)));
                     }
                 }
             }
@@ -3960,13 +3988,17 @@ private void validateSubProjects(
         } else {
             boolean poFound = false;
             String expectedPoValue = null;
-            for (com.timesheet.validator.domain.SowMaster sow : sowByNumber.values()) {
-                if (sow.getPoNumber() != null && sow.getPoNumber().equals(normalizedPoNumber)) {
-                    poFound = true;
-                    expectedPoValue = sow.getPoValue() != null
-                            ? String.valueOf(sow.getPoValue().longValue())
+            com.timesheet.validator.domain.SowMaster matchedSow =
+                    findSowByPoNumber(sowByNumber, normalizedPoNumber);
+            if (matchedSow != null) {
+                poFound = true;
+                // PO Value is only comparable against the primary master PO
+                // (SOW_PO entries carry no value of their own).
+                if (matchedSow.getPoNumber() != null
+                        && matchedSow.getPoNumber().equals(normalizedPoNumber)) {
+                    expectedPoValue = matchedSow.getPoValue() != null
+                            ? String.valueOf(matchedSow.getPoValue().longValue())
                             : null;
-                    break;
                 }
             }
             if (!poFound) {
@@ -3997,47 +4029,87 @@ private void validateSubProjects(
                     "PO Value is mandatory. PO Value missing for selected Project."));
         }
 
-        // Validate Total Billable Headcount against Summary resource count
+        // Validate Total Billable Headcount. The value is an FTE count and can
+        // be fractional (someone can be billed for half a day's work), so it
+        // is parsed as a decimal and cross-checked against:
+        //   (a) always — the Commercial sheet's own data-section Resource
+        //       count (col 1, rows 9..11, last value; native workbooks link
+        //       that cell to the header directly, e.g. B10 = =B5);
+        //   (b) whole numbers only — the number of unique employees in the
+        //       Summary sheet (a fractional FTE total can never equal a
+        //       person count, so that comparison is skipped for fractional
+        //       values like 4.5).
         if (billableHeadcountStr.isBlank()) {
             issues.add(commercialIssue(
                     sessionId, "CM-02", "CRITICAL", 4, 1, "Total Billable Headcount",
                     "Total Billable Headcount is mandatory. Resource count missing."));
-        } else if (summaryCells != null && !summaryCells.isEmpty()) {
+        } else {
+            Double commercialHeadcount = null;
             try {
-                int commercialHeadcount = Integer.parseInt(billableHeadcountStr.trim());
-
-                // Count unique resources in Summary sheet
-                Set<String> summaryResources = new HashSet<>();
-                TreeMap<Integer, Map<Integer, CellData>> summaryRowMap = new TreeMap<>();
-                for (CellData c : summaryCells) {
-                    summaryRowMap.computeIfAbsent(c.getRowIdx(), k -> new TreeMap<>()).put(c.getColIdx(), c);
-                }
-                int summaryFirstKey = summaryRowMap.firstKey();
-                int summaryLastKey = summaryRowMap.lastKey();
-                int dataStartRow = summaryFirstKey + 2;
-
-                for (Map.Entry<Integer, Map<Integer, CellData>> entry : summaryRowMap.entrySet()) {
-                    int rowIdx = entry.getKey();
-                    if (rowIdx < dataStartRow) continue;
-                    if (rowIdx == summaryLastKey) continue;
-                    Map<Integer, CellData> cols = entry.getValue();
-                    if (isFooterTotalLabel(val(cols, 0))) continue; // Defect 7.4
-                    String empName = val(cols, 3);
-                    if (!empName.isBlank()) {
-                        summaryResources.add(empName.trim().toLowerCase());
-                    }
-                }
-
-                if (commercialHeadcount != summaryResources.size()) {
-                    issues.add(commercialIssue(
-                            sessionId, "CM-02", "CRITICAL", 4, 1, "Total Billable Headcount",
-                            String.format("Resource count mismatch detected. Commercial=%d, Summary=%d.",
-                                    commercialHeadcount, summaryResources.size())));
-                }
+                commercialHeadcount =
+                        Double.parseDouble(billableHeadcountStr.trim().replaceAll("[,$]", ""));
             } catch (NumberFormatException e) {
                 issues.add(commercialIssue(
                         sessionId, "CM-02", "CRITICAL", 4, 1, "Total Billable Headcount",
                         String.format("Invalid Total Billable Headcount value: '%s'.", billableHeadcountStr)));
+            }
+
+            if (commercialHeadcount != null) {
+
+                // (a) Commercial data-section Resource count (col 1, rows 9..11):
+                // per-location rows followed by the project total in the last row.
+                Double dataSectionCount = null;
+                for (Map.Entry<Integer, Map<Integer, CellData>> entry : commercialRowMap.entrySet()) {
+                    int rowIdx = entry.getKey();
+                    if (rowIdx < 9) continue;
+                    if (rowIdx >= 12) continue;
+                    String countStr = val(entry.getValue(), 1);
+                    if (!countStr.isBlank()) {
+                        try {
+                            dataSectionCount = Double.parseDouble(countStr.trim().replaceAll("[,$]", ""));
+                        } catch (NumberFormatException ignored) {}
+                    }
+                }
+                if (dataSectionCount != null
+                        && Math.abs(commercialHeadcount - dataSectionCount) > 0.01) {
+                    issues.add(commercialIssue(
+                            sessionId, "CM-02", "CRITICAL", 4, 1, "Total Billable Headcount",
+                            String.format("Resource count mismatch detected. Commercial=%.1f, data section=%.1f.",
+                                    commercialHeadcount, dataSectionCount)));
+                }
+
+                // (b) Whole-number headcount vs unique Summary employees.
+                if (commercialHeadcount == Math.floor(commercialHeadcount)
+                        && summaryCells != null && !summaryCells.isEmpty()) {
+
+                    Set<String> summaryResources = new HashSet<>();
+                    TreeMap<Integer, Map<Integer, CellData>> summaryRowMap = new TreeMap<>();
+                    for (CellData c : summaryCells) {
+                        summaryRowMap.computeIfAbsent(c.getRowIdx(), k -> new TreeMap<>()).put(c.getColIdx(), c);
+                    }
+                    int summaryFirstKey = summaryRowMap.firstKey();
+                    int summaryLastKey = summaryRowMap.lastKey();
+                    int dataStartRow = summaryFirstKey + 2;
+
+                    for (Map.Entry<Integer, Map<Integer, CellData>> entry : summaryRowMap.entrySet()) {
+                        int rowIdx = entry.getKey();
+                        if (rowIdx < dataStartRow) continue;
+                        if (rowIdx == summaryLastKey) continue;
+                        Map<Integer, CellData> cols = entry.getValue();
+                        if (isFooterTotalLabel(val(cols, 0))) continue; // Defect 7.4
+                        String empName = val(cols, 3);
+                        if (!empName.isBlank()) {
+                            summaryResources.add(empName.trim().toLowerCase());
+                        }
+                    }
+
+                    if (commercialHeadcount.intValue() != summaryResources.size()) {
+                        issues.add(commercialIssue(
+                                sessionId, "CM-02", "CRITICAL", 4, 1, "Total Billable Headcount",
+                                String.format("Resource count mismatch detected. Commercial=%d, Summary=%d.",
+                                        commercialHeadcount.intValue(), summaryResources.size())));
+                    }
+                }
             }
         }
 
