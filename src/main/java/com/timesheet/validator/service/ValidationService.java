@@ -5,6 +5,7 @@ import com.timesheet.validator.domain.UploadProject;
 import com.timesheet.validator.domain.UploadSession;
 import com.timesheet.validator.repository.UploadSessionRepository;
 import com.timesheet.validator.config.AppProperties;
+import com.timesheet.validator.config.CommercialTestProperties;
 import com.timesheet.validator.domain.CellData;
 import com.timesheet.validator.domain.ValidationIssue;
 import com.timesheet.validator.dto.ValidationResultDto;
@@ -85,6 +86,7 @@ public class ValidationService {
     );
 
     private final AppProperties props;
+    private final CommercialTestProperties commercialTest;
     private final CellDataRepository cellRepo;
     private final PublicHolidayRepository holidayRepo;
     private final ResourceSowRepository resourceSowRepo;
@@ -755,6 +757,11 @@ public class ValidationService {
                             COMMERCIAL_SHEET);
 
             if (!commercialCells.isEmpty()) {
+
+                // Defects 7.5 / 7.7 — populate configured test data and the
+                // latest remaining PO Balance before validating, so both the
+                // validations and the viewer see the enriched values.
+                enrichCommercialCells(commercialCells);
 
                 validateCommercial(
                         sessionId,
@@ -3442,6 +3449,12 @@ private void validateSubProjects(
 
             if (sowNo.isBlank() && employeeName.isBlank()) continue;
 
+            // Defect 7.4 — footer/summary-total rows (e.g. "Net Jun billable
+            // amount") carry the month's billing totals, not a SOW record.
+            // Exclude them from SOW validation, employee/PO validation and
+            // record processing entirely.
+            if (isFooterTotalLabel(sowNo)) continue;
+
             // =========================================
             // SM-01: SOW No + Description
             // =========================================
@@ -3876,7 +3889,6 @@ private void validateSubProjects(
         String poValueStr = getValue.apply(3, 1);
         String billableHeadcountStr = getValue.apply(4, 1);
         String poBalanceStr = getValue.apply(7, 1);
-        String poAmountStr = getValue.apply(15, 1);
 
         // Normalize PO number (may appear as scientific notation)
         String normalizedPoNumber = poNumber;
@@ -4009,6 +4021,7 @@ private void validateSubProjects(
                     if (rowIdx < dataStartRow) continue;
                     if (rowIdx == summaryLastKey) continue;
                     Map<Integer, CellData> cols = entry.getValue();
+                    if (isFooterTotalLabel(val(cols, 0))) continue; // Defect 7.4
                     String empName = val(cols, 3);
                     if (!empName.isBlank()) {
                         summaryResources.add(empName.trim().toLowerCase());
@@ -4049,6 +4062,7 @@ private void validateSubProjects(
                 if (rowIdx < sDataStart) continue;
                 if (rowIdx == sLastKey) continue;
                 Map<Integer, CellData> cols = entry.getValue();
+                if (isFooterTotalLabel(val(cols, 0))) continue; // Defect 7.4
                 String daysStr = val(cols, 8);
                 if (!daysStr.isBlank()) {
                     try {
@@ -4118,6 +4132,7 @@ private void validateSubProjects(
                 if (rowIdx < sDataStart) continue;
                 if (rowIdx == sLastKey) continue;
                 Map<Integer, CellData> cols = entry.getValue();
+                if (isFooterTotalLabel(val(cols, 0))) continue; // Defect 7.4
                 String amountStr = val(cols, 10);
                 if (!amountStr.isBlank()) {
                     try {
@@ -4165,69 +4180,89 @@ private void validateSubProjects(
 
         // =========================================
         // CM-05: Planned Value, Actual Value & PO Balance Validation
+        //
+        // Defect 7.7 — replicate the uploaded Excel's running-balance logic
+        // instead of assuming Balance = PO Amount − Σ(Actual Values):
+        //   oldest invoicing row (bottom) : PO Balance = PO Amount − Actual Value
+        //   every newer row               : PO Balance = Previous PO Balance − Actual Value
+        // and the header PO Balance (next to Month Ideal Days) is the latest
+        // month's remaining balance (Excel: =D<newest row>).
+        //
+        // The invoicing section is located by label, not by hardcoded row
+        // indices: native Sydney workbooks carry one more leading row than
+        // transformed generalized ones, which made this check read the PO
+        // number as the PO amount and generate false validation errors.
         // =========================================
-        log.info("CM-05: Checking PO Balance calculation");
+        log.info("CM-05: Checking PO Balance calculation (Excel running-balance logic)");
 
-        if (!poAmountStr.isBlank() && !poBalanceStr.isBlank()) {
-            try {
-                double poAmount = Double.parseDouble(poAmountStr.trim().replaceAll("[,$]", ""));
-                double poBalance = Double.parseDouble(poBalanceStr.trim().replaceAll("[,$]", ""));
+        InvoicingSection invoicing = locateInvoicingSection(commercialRowMap);
+        double basePoAmount = resolveBasePoAmount(invoicing, commercialRowMap, poValueStr);
 
-                // Sum all Actual Values from invoicing plan rows (row 17+)
-                double cumulativeActualValue = 0;
-                for (Map.Entry<Integer, Map<Integer, CellData>> entry : commercialRowMap.entrySet()) {
-                    int rowIdx = entry.getKey();
-                    // Invoicing data rows start at row 17 (0-indexed)
-                    if (rowIdx < 17) continue;
-                    Map<Integer, CellData> cols = entry.getValue();
-                    // Col 2 = Actual Value in invoicing section
-                    String actualStr = val(cols, 2);
-                    if (!actualStr.isBlank()) {
-                        try {
-                            cumulativeActualValue += Double.parseDouble(actualStr.trim().replaceAll("[,$]", ""));
-                        } catch (NumberFormatException ignored) {}
-                    }
-                }
+        if (!invoicing.rowIdxs().isEmpty() && !Double.isNaN(basePoAmount)) {
 
-                // Expected PO Balance = PO Amount - Cumulative Actual Value
-                double expectedBalance = poAmount - cumulativeActualValue;
+            Map<Integer, Double> expectedBalanceByRow =
+                    computeExpectedBalances(invoicing, basePoAmount);
 
-                log.info("CM-05: PO Amount={}, Cumulative Actual={}, Expected Balance={}, Actual Balance={}",
-                        poAmount, cumulativeActualValue, expectedBalance, poBalance);
+            // Invoicing rows are stored newest-first, so the first entry holds
+            // the latest month's remaining balance.
+            double latestRemainingBalance = expectedBalanceByRow.get(invoicing.rowIdxs().get(0));
 
-                if (Math.abs(expectedBalance - poBalance) > 0.01) {
-                    issues.add(commercialIssue(
-                            sessionId, "CM-05", "CRITICAL", 7, 1, "PO Balance",
-                            String.format("PO Balance calculation mismatch. Expected=%.2f (PO Amount %.2f - Cumulative Actual %.2f), found %.2f.",
-                                    expectedBalance, poAmount, cumulativeActualValue, poBalance)));
-                }
+            log.info("CM-05: Base PO amount={}, latest remaining balance={}",
+                    basePoAmount, latestRemainingBalance);
 
-                // Validate each invoicing row: Planned Value and Actual Value are
-                // mandatory for every month in the invoicing plan (FR-5).
-                for (Map.Entry<Integer, Map<Integer, CellData>> entry : commercialRowMap.entrySet()) {
-                    int rowIdx = entry.getKey();
-                    if (rowIdx < 17) continue;
-                    Map<Integer, CellData> cols = entry.getValue();
-                    String plannedStr = val(cols, 1);
-                    String actualStr = val(cols, 2);
-                    String balanceStr = val(cols, 3);
-                    if (plannedStr.isBlank() && actualStr.isBlank() && balanceStr.isBlank()) continue;
-
-                    if (plannedStr.isBlank()) {
+            // Header PO Balance (row 7, next to Month Ideal Days) must equal the
+            // latest month's remaining balance.
+            if (!poBalanceStr.isBlank()) {
+                try {
+                    double poBalance = parseAmount(poBalanceStr);
+                    if (Math.abs(latestRemainingBalance - poBalance) > 0.01) {
                         issues.add(commercialIssue(
-                                sessionId, "CM-05", "CRITICAL", rowIdx, 1, "Planned Value",
-                                String.format("Planned Value is mandatory for invoicing row %d.", rowIdx + 1)));
+                                sessionId, "CM-05", "CRITICAL", 7, 1, "PO Balance",
+                                String.format("PO Balance mismatch with invoicing plan. Expected %.2f (latest remaining PO balance), found %.2f.",
+                                        latestRemainingBalance, poBalance)));
                     }
-                    if (actualStr.isBlank()) {
-                        issues.add(commercialIssue(
-                                sessionId, "CM-05", "CRITICAL", rowIdx, 2, "Actual Value",
-                                String.format("Actual Value is mandatory for invoicing row %d.", rowIdx + 1)));
-                    }
+                } catch (NumberFormatException e) {
+                    log.warn("CM-05: Could not parse header PO Balance '{}'", poBalanceStr);
                 }
+            }
 
-            } catch (NumberFormatException e) {
-                log.warn("CM-05: Could not parse numeric values: PO Amount='{}', PO Balance='{}'",
-                        poAmountStr, poBalanceStr);
+            // Each month's PO Balance must match the uploaded Excel's running balance.
+            for (int i = 0; i < invoicing.rowIdxs().size(); i++) {
+                int rowIdx = invoicing.rowIdxs().get(i);
+                String balanceStr = val(invoicing.rows().get(i), 3);
+                if (balanceStr.isBlank()) continue; // blank balances are populated by the enricher
+                try {
+                    double uploaded = parseAmount(balanceStr);
+                    double expected = expectedBalanceByRow.get(rowIdx);
+                    if (Math.abs(expected - uploaded) > 0.01) {
+                        issues.add(commercialIssue(
+                                sessionId, "CM-05", "CRITICAL", rowIdx, 3, "PO Balance",
+                                String.format("PO Balance calculation mismatch for invoicing row %d. Expected %.2f (Excel running-balance logic), found %.2f.",
+                                        rowIdx + 1, expected, uploaded)));
+                    }
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+
+        // Planned Value and Actual Value are mandatory for every month in the
+        // invoicing plan (FR-5).
+        for (int i = 0; i < invoicing.rows().size(); i++) {
+            int rowIdx = invoicing.rowIdxs().get(i);
+            Map<Integer, CellData> cols = invoicing.rows().get(i);
+            String plannedStr = val(cols, 1);
+            String actualStr = val(cols, 2);
+            String balanceStr = val(cols, 3);
+            if (plannedStr.isBlank() && actualStr.isBlank() && balanceStr.isBlank()) continue;
+
+            if (plannedStr.isBlank()) {
+                issues.add(commercialIssue(
+                        sessionId, "CM-05", "CRITICAL", rowIdx, 1, "Planned Value",
+                        String.format("Planned Value is mandatory for invoicing row %d.", rowIdx + 1)));
+            }
+            if (actualStr.isBlank()) {
+                issues.add(commercialIssue(
+                        sessionId, "CM-05", "CRITICAL", rowIdx, 2, "Actual Value",
+                        String.format("Actual Value is mandatory for invoicing row %d.", rowIdx + 1)));
             }
         }
 
@@ -4291,6 +4326,7 @@ private void validateSubProjects(
                 if (rowIdx < sDataStart) continue;
                 if (rowIdx == sLastKey) continue;
                 Map<Integer, CellData> cols = entry.getValue();
+                if (isFooterTotalLabel(val(cols, 0))) continue; // Defect 7.4
                 String amountStr = val(cols, 10);
                 if (!amountStr.isBlank()) {
                     try {
@@ -4366,5 +4402,224 @@ private void validateSubProjects(
         log.info("Commercial Validation completed.");
     }
 
+    // ======================================================
+    // COMMERCIAL ENRICHMENT & INVOICING HELPERS
+    // (Defects 7.4 / 7.5 / 7.7)
+    // ======================================================
+
+    /** Footer/summary-total label rows on the Summary/Commercial sheets
+     *  (e.g. "Net Jun billable amount"). They carry the month's billing
+     *  totals — never a SOW record — and must be excluded from SOW
+     *  validation and from any per-record aggregation. */
+    private static final java.util.regex.Pattern FOOTER_TOTAL_LABEL =
+            java.util.regex.Pattern.compile("(?i)^\\s*net\\b.*\\bbillable\\s*amount\\b.*$");
+
+    private boolean isFooterTotalLabel(String label) {
+        return label != null && FOOTER_TOTAL_LABEL.matcher(label).matches();
+    }
+
+    /** True when the cell carries no usable value. */
+    private boolean isBlankCell(CellData c) {
+        return c == null || c.getDisplayValue() == null || c.getDisplayValue().isBlank();
+    }
+
+    /** "88000" for whole numbers, "1234.56" otherwise. */
+    private String formatAmount(double v) {
+        return (v == Math.floor(v) && !Double.isInfinite(v))
+                ? String.valueOf((long) v)
+                : String.valueOf(v);
+    }
+
+    /** Parses a numeric cell value, tolerating thousands separators. */
+    private double parseAmount(String s) {
+        return Double.parseDouble(s.trim().replaceAll("[,$]", ""));
+    }
+
+    /**
+     * Populates a blank Commercial header cell (label in col 0, value in
+     * col 1) with the given fixed value. Defect 7.5 — uploaded (non-blank)
+     * values always win; only blanks are filled.
+     */
+    private void applyHardcodedValue(TreeMap<Integer, Map<Integer, CellData>> rowMap,
+                                     String label, String value, List<CellData> changed) {
+        if (value == null || value.isBlank()) return;
+        for (Map<Integer, CellData> cols : rowMap.values()) {
+            CellData labelCell = cols.get(0);
+            if (labelCell == null || labelCell.getDisplayValue() == null
+                    || !label.equalsIgnoreCase(labelCell.getDisplayValue().trim())) continue;
+            CellData valueCell = cols.get(1);
+            if (isBlankCell(valueCell)) {
+                valueCell.setDisplayValue(value.trim());
+                valueCell.setRawValue(value.trim());
+                changed.add(valueCell);
+                log.info("[Commercial Enrichment] Hardcoded {}='{}' (Defect 7.5 test data)",
+                        label, value.trim());
+            }
+            return;
+        }
+    }
+
+    /**
+     * Defects 7.5 / 7.7 — populate Commercial sheet fields that have no
+     * dynamic source yet, before validation runs:
+     * <ul>
+     *   <li>7.5: config-driven test values for PO Number, PO Value and Total
+     *       Billable Headcount (blank cells only, testing environments only);</li>
+     *   <li>7.7: the header PO Balance cell (next to Month Ideal Days) is
+     *       populated with the latest month's remaining balance — computed
+     *       with the uploaded Excel's running-balance logic — when the upload
+     *       left it blank.</li>
+     * </ul>
+     * Enriched cells are persisted so the viewer displays them and the
+     * Commercial validations run against the populated values.
+     */
+    private void enrichCommercialCells(List<CellData> commercialCells) {
+
+        TreeMap<Integer, Map<Integer, CellData>> rowMap = new TreeMap<>();
+        for (CellData c : commercialCells) {
+            rowMap.computeIfAbsent(c.getRowIdx(), k -> new TreeMap<>()).put(c.getColIdx(), c);
+        }
+
+        List<CellData> changed = new ArrayList<>();
+
+        // ── Defect 7.5 — temporary hardcoded test data ──────────────────────
+        if (commercialTest.isEnabled()) {
+            applyHardcodedValue(rowMap, "PO Number", commercialTest.getPoNumber(), changed);
+            applyHardcodedValue(rowMap, "PO Value",
+                    commercialTest.getPoValue() == null
+                            ? null : commercialTest.getPoValue().toPlainString(), changed);
+            applyHardcodedValue(rowMap, "Total Billable Headcount",
+                    commercialTest.getTotalBillableHeadcount() == null
+                            ? null : formatAmount(commercialTest.getTotalBillableHeadcount()), changed);
+        }
+
+        // ── Defect 7.7 — remaining PO Balance display next to Month Ideal Days
+        CellData headerBalanceCell = null;
+        for (Map.Entry<Integer, Map<Integer, CellData>> entry : rowMap.entrySet()) {
+            if (entry.getKey() >= 9) break; // summary section only
+            Map<Integer, CellData> cols = entry.getValue();
+            if ("PO Balance".equalsIgnoreCase(val(cols, 0))) {
+                headerBalanceCell = cols.get(1);
+                break;
+            }
+        }
+
+        if (headerBalanceCell != null && isBlankCell(headerBalanceCell)) {
+            InvoicingSection section = locateInvoicingSection(rowMap);
+            double baseAmount = resolveBasePoAmount(section, rowMap, val(rowMap.get(3), 1));
+            if (!section.rowIdxs().isEmpty() && !Double.isNaN(baseAmount)) {
+                Map<Integer, Double> expected = computeExpectedBalances(section, baseAmount);
+                // rows are stored newest-first → first entry = latest remaining balance
+                Double latestRemaining = expected.get(section.rowIdxs().get(0));
+                if (latestRemaining != null) {
+                    headerBalanceCell.setDisplayValue(formatAmount(latestRemaining));
+                    headerBalanceCell.setRawValue(formatAmount(latestRemaining));
+                    changed.add(headerBalanceCell);
+                    log.info("[Commercial Enrichment] Populated header PO Balance with latest remaining balance {} (Defect 7.7)",
+                            formatAmount(latestRemaining));
+                }
+            }
+        }
+
+        if (!changed.isEmpty()) {
+            cellRepo.saveAll(changed);
+            log.info("[Commercial Enrichment] Persisted {} enriched Commercial cell(s)", changed.size());
+        }
+    }
+
+    /** The located invoicing-plan section of the Commercial sheet. */
+    private record InvoicingSection(int headerRow,
+                                    List<Integer> rowIdxs,
+                                    List<Map<Integer, CellData>> rows,
+                                    int poAmountRow) {}
+
+    /**
+     * Locates the invoicing-plan section by label instead of hardcoded row
+     * indices (Defect 7.7): the header row holds "Month | Planned Value",
+     * the PO Amount row is labelled "PO Amount". Data rows below the header
+     * with a non-blank month cell are returned newest-first, exactly as
+     * uploaded.
+     */
+    private InvoicingSection locateInvoicingSection(TreeMap<Integer, Map<Integer, CellData>> rowMap) {
+        int headerRow = -1;
+        int poAmountRow = -1;
+        for (Map.Entry<Integer, Map<Integer, CellData>> entry : rowMap.entrySet()) {
+            int rowIdx = entry.getKey();
+            if (rowIdx < 9) continue; // below the per-location data section
+            Map<Integer, CellData> cols = entry.getValue();
+            if (headerRow < 0
+                    && "Month".equalsIgnoreCase(val(cols, 0))
+                    && "Planned Value".equalsIgnoreCase(val(cols, 1))) {
+                headerRow = rowIdx;
+            }
+            if (poAmountRow < 0
+                    && "PO Amount".equalsIgnoreCase(val(cols, 0).trim())) {
+                poAmountRow = rowIdx;
+            }
+        }
+
+        List<Integer> rowIdxs = new ArrayList<>();
+        List<Map<Integer, CellData>> rows = new ArrayList<>();
+        if (headerRow >= 0) {
+            for (Map.Entry<Integer, Map<Integer, CellData>> entry : rowMap.entrySet()) {
+                int rowIdx = entry.getKey();
+                if (rowIdx <= headerRow) continue;
+                Map<Integer, CellData> cols = entry.getValue();
+                if (!val(cols, 0).isBlank()) {
+                    rowIdxs.add(rowIdx);
+                    rows.add(cols);
+                }
+            }
+        }
+        return new InvoicingSection(headerRow, rowIdxs, rows, poAmountRow);
+    }
+
+    /**
+     * Base amount for the PO Balance chain: the labelled "PO Amount" value,
+     * falling back to the header PO Value ("Total Allocated PO Value").
+     * Returns {@code NaN} when neither is parseable.
+     */
+    private double resolveBasePoAmount(InvoicingSection section,
+                                       TreeMap<Integer, Map<Integer, CellData>> rowMap,
+                                       String poValueStr) {
+        String raw = (section.poAmountRow() >= 0)
+                ? val(rowMap.get(section.poAmountRow()), 1)
+                : poValueStr;
+        if (raw == null || raw.isBlank()) return Double.NaN;
+        try {
+            return parseAmount(raw);
+        } catch (NumberFormatException e) {
+            return Double.NaN;
+        }
+    }
+
+    /**
+     * Expected PO Balance per invoicing row, replicating the uploaded Excel's
+     * running-balance chain (Defect 7.7). Rows are newest-first, so the walk
+     * starts at the bottom (oldest) row:
+     * <pre>
+     *   oldest row : PO Balance = PO Amount − Actual Value
+     *   newer rows : PO Balance = Previous PO Balance − Actual Value
+     * </pre>
+     * Returns rowIdx → expected balance; the entry for the first (newest)
+     * row is the latest remaining balance shown next to Month Ideal Days.
+     */
+    private Map<Integer, Double> computeExpectedBalances(InvoicingSection section,
+                                                         double basePoAmount) {
+        Map<Integer, Double> expectedByRow = new LinkedHashMap<>();
+        Double running = null;
+        for (int i = section.rows().size() - 1; i >= 0; i--) {
+            double actual = 0;
+            String actualStr = val(section.rows().get(i), 2);
+            if (!actualStr.isBlank()) {
+                try {
+                    actual = parseAmount(actualStr);
+                } catch (NumberFormatException ignored) {}
+            }
+            running = (running == null) ? basePoAmount - actual : running - actual;
+            expectedByRow.put(section.rowIdxs().get(i), running);
+        }
+        return expectedByRow;
+    }
 
 }
